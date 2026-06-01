@@ -92,9 +92,9 @@ function FlowBar({
 
       {inFlow ? (
         <>
-          {[{ k: "upload", l: "Add documents" }, { k: "extracting", l: "Extract" }].map((s, i) => {
+          {[{ k: "upload", l: "Add documents" }, { k: "extracting", l: "Analyse" }, { k: "review", l: "Review" }].map((s, i) => {
             const active = s.k === state.screen;
-            const order = ["upload", "extracting"];
+            const order = ["upload", "extracting", "review"];
             const done = order.indexOf(state.screen) > i;
             return (
               <div key={s.k} style={{
@@ -294,9 +294,272 @@ function ScreenUpload({ state, set }: { state: PlannerState; set: (p: Partial<Pl
 
 // ── Extraction screen ─────────────────────────────────────────────────────────
 
+// ── Helpers shared by extraction ─────────────────────────────────────────────
+
+function normaliseRaw(t: Record<string, unknown>, i: number): PlannerTask {
+  const hasRec = t.recurrence && typeof t.recurrence === "object";
+  const todayIso = fmtIso(new Date());
+  const dateIso = typeof t.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.date) ? t.date : (hasRec ? null : todayIso);
+  const endIso = typeof t.endDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.endDate) ? t.endDate : null;
+  const allDay = hasRec ? false : (!!t.allDay || t.start == null);
+  return {
+    id: String(t.id || `t${i + 1}`),
+    title: String(t.title || "Untitled").slice(0, 100),
+    description: typeof t.description === "string" ? t.description : "",
+    cat: (["work","meet","focus","life"].includes(t.cat as string) ? t.cat : "work") as PlannerTask["cat"],
+    date: dateIso,
+    endDate: endIso && dateIso && endIso >= dateIso ? endIso : null,
+    allDay,
+    start: hasRec ? null : (allDay ? null : Math.max(0, Math.min(23.5, parseFloat(String(t.start)) || 9))),
+    dur: hasRec
+      ? (Number.isFinite(+(t.recurrence as Record<string,unknown>)?.duration!) ? +(t.recurrence as Record<string,unknown>).duration! : null)
+      : (allDay ? null : Math.max(0.5, Math.min(4, parseFloat(String(t.dur)) || 1))),
+    prio: (["high","med","low"].includes(t.prio as string) ? t.prio : "med") as PlannerTask["prio"],
+    reason: String(t.reason || `From ${t.source || "uploaded files"}.`),
+    source: String(t.source || ""),
+    phase: typeof t.phase === "string" ? t.phase : null,
+    isMilestone: t.isMilestone === true,
+    isReminder: t.isReminder === true,
+    dependsOn: Array.isArray(t.dependsOn) ? (t.dependsOn as string[]) : [],
+    recurrence: hasRec ? (t.recurrence as Record<string,unknown>) : null,
+    condition: typeof t.condition === "string" ? t.condition : null,
+    _reviewStatus: "pending",
+  };
+}
+
+// ── Inline edit modal ─────────────────────────────────────────────────────────
+
+function EditTaskModal({ task, onSave, onClose }: {
+  task: PlannerTask;
+  onSave: (t: PlannerTask) => void;
+  onClose: () => void;
+}) {
+  const [title, setTitle] = useState(task.title);
+  const [date, setDate] = useState(task.date || "");
+  const [cat, setCat] = useState(task.cat);
+  const [prio, setPrio] = useState(task.prio);
+  const [startH, setStartH] = useState(String(task.start ?? ""));
+  const [dur, setDur] = useState(String(task.dur ?? ""));
+  const [description, setDescription] = useState(task.description || "");
+
+  const inp: React.CSSProperties = {
+    width: "100%", background: "var(--bg-1)", border: "1px solid var(--line-2)",
+    borderRadius: "var(--radius-sm)", color: "var(--fg)",
+    fontFamily: "var(--font-ui)", fontSize: 12, padding: "6px 10px", outline: "none",
+  };
+  const lbl: React.CSSProperties = {
+    fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--fg-3)",
+    letterSpacing: "0.06em", marginBottom: 4, display: "block",
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 200,
+      background: "rgba(26,24,21,0.55)", display: "flex", alignItems: "center", justifyContent: "center",
+    }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: "var(--bg-2)", border: "1px solid var(--line-2)",
+        borderRadius: "var(--radius)", padding: "28px 32px", width: 480,
+        boxShadow: "0 16px 48px rgba(0,0,0,0.18)",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 22 }}>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 18 }}>Edit event</span>
+          <button onClick={onClose} style={{ background: "transparent", border: 0, color: "var(--fg-3)", cursor: "pointer", fontSize: 16 }}>✕</button>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <span style={lbl}>TITLE</span>
+            <input style={inp} value={title} onChange={e => setTitle(e.target.value)} />
+          </div>
+          <div>
+            <span style={lbl}>DESCRIPTION</span>
+            <textarea style={{ ...inp, height: 60, resize: "vertical" }} value={description} onChange={e => setDescription(e.target.value)} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <span style={lbl}>DATE</span>
+              <input style={inp} type="date" value={date} onChange={e => setDate(e.target.value)} />
+            </div>
+            <div>
+              <span style={lbl}>CATEGORY</span>
+              <select style={{ ...inp }} value={cat} onChange={e => setCat(e.target.value as PlannerTask["cat"])}>
+                <option value="work">Work</option>
+                <option value="meet">Meeting</option>
+                <option value="focus">Focus</option>
+                <option value="life">Life</option>
+              </select>
+            </div>
+            <div>
+              <span style={lbl}>START (hour, e.g. 9.5)</span>
+              <input style={inp} value={startH} onChange={e => setStartH(e.target.value)} placeholder="9" />
+            </div>
+            <div>
+              <span style={lbl}>DURATION (hours)</span>
+              <input style={inp} value={dur} onChange={e => setDur(e.target.value)} placeholder="1" />
+            </div>
+            <div>
+              <span style={lbl}>PRIORITY</span>
+              <select style={{ ...inp }} value={prio} onChange={e => setPrio(e.target.value as PlannerTask["prio"])}>
+                <option value="high">High</option>
+                <option value="med">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 24 }}>
+          <button onClick={onClose} style={ghostBtnStyle}>Cancel</button>
+          <PrimaryButton onClick={() => {
+            const parsedStart = parseFloat(startH);
+            const parsedDur = parseFloat(dur);
+            onSave({
+              ...task,
+              title: title.trim() || task.title,
+              description,
+              date: date || task.date,
+              cat,
+              prio,
+              start: isNaN(parsedStart) ? task.start : parsedStart,
+              dur: isNaN(parsedDur) ? task.dur : parsedDur,
+              allDay: isNaN(parsedStart),
+            });
+          }}>Save changes</PrimaryButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Review table ──────────────────────────────────────────────────────────────
+
+function ReviewTable({ tasks, onToggle, onEdit, onEditSave }: {
+  tasks: PlannerTask[];
+  onToggle: (id: string) => void;
+  onEdit: (t: PlannerTask) => void;
+  onEditSave: (t: PlannerTask) => void;
+}) {
+  const [editing, setEditing] = useState<PlannerTask | null>(null);
+
+  // Group by phase
+  const phases = useMemo(() => {
+    const map = new Map<string, PlannerTask[]>();
+    tasks.forEach(t => {
+      const key = t.phase || "—";
+      (map.get(key) || map.set(key, []).get(key)!).push(t);
+    });
+    return map;
+  }, [tasks]);
+
+  const accepted = tasks.filter(t => t._reviewStatus === "accepted").length;
+  const total = tasks.length;
+
+  return (
+    <>
+      {editing && (
+        <EditTaskModal
+          task={editing}
+          onSave={t => { onEditSave(t); setEditing(null); }}
+          onClose={() => setEditing(null)}
+        />
+      )}
+      <div style={{ background: "var(--bg-1)", border: "1px solid var(--line)", borderRadius: "var(--radius)", overflow: "hidden" }}>
+        {/* Header */}
+        <div style={{
+          padding: "11px 18px", borderBottom: "1px solid var(--line)",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-3)", letterSpacing: "0.06em",
+        }}>
+          <span>PROPOSED SCHEDULE · {total} EVENTS</span>
+          <span style={{ color: accepted > 0 ? "var(--ok)" : "var(--fg-3)" }}>{accepted} ACCEPTED</span>
+        </div>
+
+        {/* Rows grouped by phase */}
+        <div style={{ maxHeight: 440, overflow: "auto" }}>
+          {[...phases.entries()].map(([phase, phaseTasks]) => (
+            <div key={phase}>
+              {phase !== "—" && (
+                <div style={{
+                  padding: "6px 18px", background: "var(--bg-2)",
+                  fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--accent)",
+                  letterSpacing: "0.08em", borderBottom: "1px solid var(--line)",
+                }}>{phase.toUpperCase()}</div>
+              )}
+              {phaseTasks.map(t => {
+                const accepted = t._reviewStatus === "accepted";
+                const rejected = t._reviewStatus === "rejected";
+                return (
+                  <div key={t.id} style={{
+                    padding: "10px 18px",
+                    display: "grid", gridTemplateColumns: "28px 16px 1fr auto auto auto auto",
+                    gap: 10, alignItems: "center",
+                    borderBottom: "1px solid var(--line)",
+                    background: accepted ? "rgba(59,122,79,0.06)" : rejected ? "rgba(164,68,43,0.05)" : "transparent",
+                    opacity: rejected ? 0.45 : 1,
+                    transition: "background .12s, opacity .12s",
+                  }}>
+                    {/* Accept toggle */}
+                    <button
+                      onClick={() => onToggle(t.id)}
+                      title={accepted ? "Click to reject" : "Click to accept"}
+                      style={{
+                        width: 22, height: 22, borderRadius: 4, border: `1.5px solid ${accepted ? "var(--ok)" : rejected ? "var(--warn)" : "var(--line-2)"}`,
+                        background: accepted ? "var(--ok)" : "transparent",
+                        color: accepted ? "#fff" : "transparent",
+                        cursor: "pointer", fontSize: 11, flexShrink: 0,
+                        display: "grid", placeItems: "center",
+                      }}>✓</button>
+
+                    {/* Type badge */}
+                    <span style={{ fontSize: 13, flexShrink: 0 }}>
+                      {t.isMilestone ? "◆" : t.isReminder ? "🔔" : "·"}
+                    </span>
+
+                    {/* Title + meta */}
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
+                      {t.description && (
+                        <div style={{ fontSize: 11, color: "var(--fg-3)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.description}</div>
+                      )}
+                    </div>
+
+                    {/* Date */}
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-3)", whiteSpace: "nowrap" }}>
+                      {t.date || "recurring"}
+                      {t.start != null && !t.allDay ? ` ${String(Math.floor(t.start)).padStart(2,"0")}:${t.start % 1 ? "30" : "00"}` : ""}
+                    </span>
+
+                    {/* Category */}
+                    <CategoryChip cat={t.cat} />
+
+                    {/* Priority */}
+                    <span style={{
+                      fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.04em",
+                      color: t.prio === "high" ? "var(--warn)" : t.prio === "med" ? "var(--accent)" : "var(--fg-3)",
+                    }}>{t.prio.toUpperCase()}</span>
+
+                    {/* Edit */}
+                    <button
+                      onClick={() => setEditing(t)}
+                      style={{ background: "transparent", border: "1px solid var(--line)", borderRadius: "var(--radius-sm)", color: "var(--fg-3)", cursor: "pointer", padding: "3px 8px", fontFamily: "var(--font-mono)", fontSize: 9 }}>
+                      EDIT
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Extraction screen ─────────────────────────────────────────────────────────
+
 function ScreenExtraction({ state, set }: { state: PlannerState; set: (p: Partial<PlannerState>) => void }) {
   const [progress, setProgress] = useState(0);
-  const [extracted, setExtracted] = useState<PlannerTask[]>([]);
+  const [proposed, setProposed] = useState<PlannerTask[]>([]);
+  const [phase, setPhase] = useState<"extracting" | "review">("extracting");
   const [status, setStatus] = useState<"reading" | "placing" | "done">("reading");
   const [errMsg, setErrMsg] = useState("");
   const [fileStatus, setFileStatus] = useState<Record<number, string>>({});
@@ -310,18 +573,15 @@ function ScreenExtraction({ state, set }: { state: PlannerState; set: (p: Partia
       let p = 0;
       progIv = setInterval(() => {
         if (cancelRef.current) return;
-        p = Math.min(0.85, p + 0.012);
+        p = Math.min(0.82, p + 0.010);
         setProgress(p);
-      }, 110);
+      }, 120);
 
       let tasks: PlannerTask[] = [];
       try {
         if (!state.rawFiles?.length) throw new Error("no files were uploaded");
-
-        // Mark all files as reading
         state.rawFiles.forEach((_, i) => setFileStatus(prev => ({ ...prev, [i]: "reading" })));
 
-        // Build FormData and POST to /api/extract
         const formData = new FormData();
         state.rawFiles.forEach(f => formData.append("files", f));
 
@@ -332,41 +592,20 @@ function ScreenExtraction({ state, set }: { state: PlannerState; set: (p: Partia
         }
         const data = await res.json();
 
-        // Mark files as done/skipped based on results
-        if (data.results) {
-          data.results.forEach((r: { source: string; skipped?: boolean }, idx: number) => {
-            const fileIdx = state.rawFiles.findIndex(f => f.name === r.source);
-            if (fileIdx >= 0) setFileStatus(prev => ({ ...prev, [fileIdx]: r.skipped ? "skipped" : "done" }));
+        if (data.skipped) {
+          data.skipped.forEach((r: { source: string }) => {
+            const idx = state.rawFiles.findIndex(f => f.name === r.source);
+            if (idx >= 0) setFileStatus(prev => ({ ...prev, [idx]: "skipped" }));
           });
         }
-        // Mark remaining as done
         state.rawFiles.forEach((_, i) => setFileStatus(prev => ({ ...prev, [i]: prev[i] || "done" })));
 
-        const rawExtracted: PlannerTask[] = (data.extracted || []).map((t: Record<string, unknown>, i: number) => {
-          const hasRec = t.recurrence && typeof t.recurrence === "object";
-          const todayIso = fmtIso(new Date());
-          const dateIso = typeof t.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.date) ? t.date : (hasRec ? null : todayIso);
-          const endIso = typeof t.endDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.endDate) ? t.endDate : null;
-          const allDay = hasRec ? false : (!!t.allDay || t.start == null);
-          return {
-            id: String(t.id || `t${i + 1}`),
-            title: String(t.title || "Untitled").slice(0, 100),
-            cat: (["work","meet","focus","life"].includes(t.cat as string) ? t.cat : "meet") as PlannerTask["cat"],
-            date: dateIso,
-            endDate: endIso && dateIso && endIso >= dateIso ? endIso : null,
-            allDay,
-            start: hasRec ? null : (allDay ? null : Math.max(0, Math.min(23.5, parseFloat(String(t.start)) || 9))),
-            dur: hasRec ? (Number.isFinite(+(t.recurrence as Record<string,unknown>)?.duration!) ? +(t.recurrence as Record<string,unknown>).duration! : null)
-                        : (allDay ? null : Math.max(0.5, Math.min(4, parseFloat(String(t.dur)) || 1))),
-            prio: (["high","med","low"].includes(t.prio as string) ? t.prio : "med") as PlannerTask["prio"],
-            reason: String(t.reason || `From ${t.source || "uploaded files"}.`),
-            source: String(t.source || ""),
-            recurrence: hasRec ? (t.recurrence as Record<string,unknown>) : null,
-            condition: typeof t.condition === "string" ? t.condition : null,
-          };
-        });
-
+        const rawExtracted: PlannerTask[] = (data.extracted || []).map(
+          (t: Record<string, unknown>, i: number) => normaliseRaw(t, i)
+        );
         tasks = expandRecurringTasks(rawExtracted, { startDate: new Date() });
+        // Keep _reviewStatus from normaliseRaw (all "pending")
+        tasks = tasks.map(t => ({ ...t, _reviewStatus: "pending" as const }));
 
       } catch (e) {
         setErrMsg(e instanceof Error ? e.message : String(e));
@@ -383,11 +622,12 @@ function ScreenExtraction({ state, set }: { state: PlannerState; set: (p: Partia
         return;
       }
 
+      // Animate items appearing
       for (let i = 0; i < tasks.length; i++) {
         if (cancelRef.current) return;
-        await new Promise(r => setTimeout(r, 60));
-        setExtracted(tasks.slice(0, i + 1));
-        setProgress(0.85 + 0.15 * (i + 1) / tasks.length);
+        await new Promise(r => setTimeout(r, 40));
+        setProposed(tasks.slice(0, i + 1));
+        setProgress(0.82 + 0.18 * (i + 1) / tasks.length);
       }
       setStatus("done");
       setProgress(1);
@@ -398,125 +638,207 @@ function ScreenExtraction({ state, set }: { state: PlannerState; set: (p: Partia
   }, []);
 
   const done = status === "done";
-  const noTasks = done && extracted.length === 0;
+  const noTasks = done && proposed.length === 0;
+  const inReview = phase === "review";
+  const accepted = proposed.filter(t => t._reviewStatus === "accepted");
+  const milestones = proposed.filter(t => t.isMilestone).length;
+  const reminders = proposed.filter(t => t.isReminder).length;
 
-  return (
-    <div style={{ padding: "44px 56px", height: "100%", display: "flex", flexDirection: "column", gap: 24, overflow: "auto" }}>
-      {/* Step indicator */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-        <span>STEP 02 / 02</span>
-        <span style={{ width: 56, height: 1, background: "var(--line-2)" }} />
-        <span style={{ color: "var(--fg-2)" }}>{done ? (noTasks ? "Nothing to extract" : "Extraction complete") : status === "placing" ? "Placing on calendar" : "Reading & extracting"}</span>
-      </div>
+  const toggleReview = (id: string) => {
+    setProposed(prev => prev.map(t => t.id !== id ? t : {
+      ...t,
+      _reviewStatus: t._reviewStatus === "accepted" ? "rejected" : "accepted",
+    }));
+  };
+  const editSave = (updated: PlannerTask) => {
+    setProposed(prev => prev.map(t => t.id === updated.id ? { ...updated, _reviewStatus: "accepted" } : t));
+  };
+  const acceptAll = () => setProposed(prev => prev.map(t => ({ ...t, _reviewStatus: "accepted" as const })));
+  const rejectAll = () => setProposed(prev => prev.map(t => ({ ...t, _reviewStatus: "rejected" as const })));
 
-      <div style={{ display: "flex", gap: 32, alignItems: "flex-start" }}>
-        {/* Left panel */}
-        <div style={{ flex: "0 0 340px" }}>
-          <div style={{
-            fontFamily: "var(--font-display)", fontWeight: "var(--display-weight)",
-            letterSpacing: "var(--display-tracking)", fontSize: 30, lineHeight: 1.1,
-          }}>
-            {done
-              ? noTasks ? <>No tasks found.</> : <>Lifted <span style={{ color: "var(--accent)" }}>{extracted.length}</span> {extracted.length === 1 ? "item" : "items"}.</>
-              : <>Reading the file{state.rawFiles.length === 1 ? "" : "s"}.</>}
-          </div>
-          <div style={{ fontSize: 13, color: "var(--fg-2)", marginTop: 12, lineHeight: 1.55 }}>
-            {done
-              ? noTasks
-                ? "Nothing in the uploaded files looked like a task, event, or deadline."
-                : "Every task below was extracted from your file contents. Hover any task in the calendar to see exactly what the file said."
-              : "Parsing spreadsheets, docs, and PDFs into text, then asking the scheduler to place only what's actually in them."}
-          </div>
+  const confirmToCalendar = () => {
+    const toAdd = proposed.filter(t => t._reviewStatus === "accepted").map(({ _reviewStatus, ...rest }) => rest);
+    if (toAdd.length) {
+      const offset = state.tasks?.length || 0;
+      const merged = [
+        ...(state.tasks || []),
+        ...toAdd.map((t, i) => ({ ...t, id: `t${offset + i + 1}` })),
+      ];
+      set({ tasks: merged, sources: [...(state.sources || []), ...(state.files || [])], files: [], rawFiles: [], screen: "calendar" });
+    } else {
+      set({ screen: "calendar" });
+    }
+  };
 
-          {/* Progress card */}
-          <div style={{
-            marginTop: 22, background: "var(--bg-2)", border: "1px solid var(--line)",
-            borderRadius: "var(--radius-sm)", padding: "14px 16px",
-            fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-2)",
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-              <span style={{ color: "var(--fg-3)" }}>PROGRESS</span>
-              <span style={{ color: "var(--accent)" }}>{Math.round(progress * 100)}%</span>
-            </div>
-            <div style={{ height: 3, background: "var(--bg-3)", borderRadius: 2, overflow: "hidden", marginBottom: 14 }}>
-              <div style={{ width: `${progress * 100}%`, height: "100%", background: "var(--accent)", transition: "width .12s linear" }} />
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {state.files.map((f, i) => {
-                const st = fileStatus[i] || "queued";
-                const color = st === "done" ? "var(--ok)" : st === "skipped" ? "var(--warn)" : st === "reading" ? "var(--accent)" : "var(--fg-3)";
-                const mark = st === "done" ? "✓" : st === "skipped" ? "⨯" : st === "reading" ? "···" : "—";
-                return (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ color: st === "queued" ? "var(--fg-3)" : "var(--fg-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>{f.name}</span>
-                    <span style={{ color }}>{mark}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          {errMsg && (
-            <div style={{ marginTop: 10, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--warn)" }}>
-              error: {errMsg}
-            </div>
-          )}
+  // ── Extracting phase ──
+  if (!inReview) {
+    return (
+      <div style={{ padding: "44px 56px", height: "100%", display: "flex", flexDirection: "column", gap: 24, overflow: "auto" }}>
+        {/* Step */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+          <span>STEP 02 / 03</span>
+          <span style={{ width: 56, height: 1, background: "var(--line-2)" }} />
+          <span style={{ color: "var(--fg-2)" }}>{done ? (noTasks ? "Nothing found" : "AI planning complete") : status === "placing" ? "Building schedule" : "Analysing documents"}</span>
         </div>
 
-        {/* Right live list */}
-        <div style={{ flex: 1, background: "var(--bg-1)", border: "1px solid var(--line)", borderRadius: "var(--radius)", overflow: "hidden", maxHeight: 540 }}>
-          <div style={{
-            padding: "12px 18px", borderBottom: "1px solid var(--line)",
-            fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-3)",
-            letterSpacing: "0.06em", display: "flex", justifyContent: "space-between",
-          }}>
-            <span>EXTRACTED · live</span>
-            <span style={{ color: "var(--accent)" }}>{extracted.length} ITEMS</span>
-          </div>
-          <div style={{ padding: "8px 0", display: "flex", flexDirection: "column", maxHeight: 490, overflow: "hidden" }}>
-            {extracted.length === 0 && (
-              <div style={{ padding: "40px 18px", textAlign: "center", color: "var(--fg-3)", fontSize: 12, fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>
-                {done ? "NO ITEMS FOUND IN UPLOADED FILES" : "AWAITING SCHEDULER ···"}
+        <div style={{ display: "flex", gap: 32, alignItems: "flex-start" }}>
+          {/* Left */}
+          <div style={{ flex: "0 0 340px" }}>
+            <div style={{ fontFamily: "var(--font-display)", fontWeight: "var(--display-weight)", letterSpacing: "var(--display-tracking)", fontSize: 30, lineHeight: 1.1 }}>
+              {done
+                ? noTasks ? "Nothing found." : <>Built <span style={{ color: "var(--accent)" }}>{proposed.length}</span> events.</>
+                : "Reading your files."}
+            </div>
+            <div style={{ fontSize: 13, color: "var(--fg-2)", marginTop: 12, lineHeight: 1.55 }}>
+              {done
+                ? noTasks
+                  ? "Nothing actionable was found in the uploaded files."
+                  : `${proposed.length} events generated — including ${milestones} milestone${milestones !== 1 ? "s" : ""} and ${reminders} reminder${reminders !== 1 ? "s" : ""}. Review each one before adding to your calendar.`
+                : "Parsing documents then applying smart planning: detecting phases, milestones, dependencies, and reminders."}
+            </div>
+
+            {/* Progress card */}
+            <div style={{ marginTop: 22, background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: "var(--radius-sm)", padding: "14px 16px", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-2)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                <span style={{ color: "var(--fg-3)" }}>PROGRESS</span>
+                <span style={{ color: "var(--accent)" }}>{Math.round(progress * 100)}%</span>
+              </div>
+              <div style={{ height: 3, background: "var(--bg-3)", borderRadius: 2, overflow: "hidden", marginBottom: 14 }}>
+                <div style={{ width: `${progress * 100}%`, height: "100%", background: "var(--accent)", transition: "width .12s linear" }} />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {state.files.map((f, i) => {
+                  const st = fileStatus[i] || "queued";
+                  const color = st === "done" ? "var(--ok)" : st === "skipped" ? "var(--warn)" : st === "reading" ? "var(--accent)" : "var(--fg-3)";
+                  const mark = st === "done" ? "✓" : st === "skipped" ? "⨯" : st === "reading" ? "···" : "—";
+                  return (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ color: st === "queued" ? "var(--fg-3)" : "var(--fg-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>{f.name}</span>
+                      <span style={{ color }}>{mark}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            {errMsg && <div style={{ marginTop: 10, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--warn)" }}>error: {errMsg}</div>}
+
+            {/* Legend */}
+            {done && !noTasks && (
+              <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 6, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-3)" }}>
+                <span>◆ milestone &nbsp;·&nbsp; 🔔 reminder &nbsp;·&nbsp; · task</span>
+                {milestones > 0 && <span style={{ color: "var(--accent)" }}>{milestones} milestone{milestones !== 1 ? "s" : ""} generated</span>}
+                {reminders > 0 && <span style={{ color: "var(--warn)" }}>{reminders} reminder{reminders !== 1 ? "s" : ""} generated</span>}
               </div>
             )}
-            {extracted.slice(-11).map((t) => (
-              <div key={t.id} style={{
-                padding: "10px 18px", display: "grid",
-                gridTemplateColumns: "26px 1fr 80px 60px",
-                gap: 14, alignItems: "center", fontSize: 12,
-                animation: "plannerFadeIn .3s ease-out",
-              }}>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-3)" }}>
-                  #{String(t.id).replace(/\D/g, "").padStart(2, "0")}
-                </span>
-                <span style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-                <CategoryChip cat={t.cat} />
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: t.prio === "high" ? "var(--warn)" : t.prio === "med" ? "var(--accent)" : "var(--fg-3)", textAlign: "right", letterSpacing: "0.04em" }}>
-                  {t.prio.toUpperCase()}
-                </span>
-              </div>
-            ))}
           </div>
+
+          {/* Right live list */}
+          <div style={{ flex: 1, background: "var(--bg-1)", border: "1px solid var(--line)", borderRadius: "var(--radius)", overflow: "hidden", maxHeight: 500 }}>
+            <div style={{ padding: "12px 18px", borderBottom: "1px solid var(--line)", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-3)", letterSpacing: "0.06em", display: "flex", justifyContent: "space-between" }}>
+              <span>AI PLANNER · live</span>
+              <span style={{ color: "var(--accent)" }}>{proposed.length} EVENTS</span>
+            </div>
+            <div style={{ padding: "4px 0", display: "flex", flexDirection: "column", maxHeight: 450, overflow: "hidden" }}>
+              {proposed.length === 0 && (
+                <div style={{ padding: "40px 18px", textAlign: "center", color: "var(--fg-3)", fontSize: 12, fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>
+                  {done ? "NO ITEMS FOUND" : "AWAITING AI PLANNER ···"}
+                </div>
+              )}
+              {proposed.slice(-14).map(t => (
+                <div key={t.id} style={{
+                  padding: "8px 18px", display: "grid",
+                  gridTemplateColumns: "16px 1fr auto auto",
+                  gap: 10, alignItems: "center", fontSize: 12,
+                  animation: "plannerFadeIn .25s ease-out",
+                  borderBottom: "1px solid var(--line)",
+                }}>
+                  <span style={{ fontSize: 11 }}>{t.isMilestone ? "◆" : t.isReminder ? "🔔" : "·"}</span>
+                  <div>
+                    <span style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{t.title}</span>
+                    {t.phase && <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--fg-3)" }}>{t.phase}</span>}
+                  </div>
+                  <CategoryChip cat={t.cat} />
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: t.prio === "high" ? "var(--warn)" : t.prio === "med" ? "var(--accent)" : "var(--fg-3)" }}>
+                    {t.date || "recur"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: "auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <button onClick={() => set({ screen: "upload" })} style={ghostBtnStyle}>← Back</button>
+          <PrimaryButton
+            disabled={!done || noTasks}
+            onClick={() => {
+              if (noTasks) { set({ screen: "calendar" }); return; }
+              // Pre-accept all before entering review
+              setProposed(prev => prev.map(t => ({ ...t, _reviewStatus: "accepted" as const })));
+              setPhase("review");
+            }}
+          >
+            {done ? (noTasks ? "Back to calendar →" : `Review ${proposed.length} events →`) : "Planning…"}
+          </PrimaryButton>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Review phase ──
+  return (
+    <div style={{ padding: "44px 56px", height: "100%", display: "flex", flexDirection: "column", gap: 20, overflow: "auto" }}>
+      {/* Step */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+        <span>STEP 03 / 03</span>
+        <span style={{ width: 56, height: 1, background: "var(--line-2)" }} />
+        <span style={{ color: "var(--fg-2)" }}>Review & confirm</span>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+        <div>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: "var(--display-weight)", letterSpacing: "var(--display-tracking)", fontSize: 28, lineHeight: 1.1 }}>
+            Review your plan.
+          </div>
+          <div style={{ fontSize: 13, color: "var(--fg-2)", marginTop: 8, lineHeight: 1.5 }}>
+            Accept or reject each event. Edit any details. Only accepted events go to your calendar.
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+          <button onClick={acceptAll} style={{ ...ghostBtnStyle, color: "var(--ok)", borderColor: "var(--ok)", fontSize: 11 }}>✓ Accept all</button>
+          <button onClick={rejectAll} style={{ ...ghostBtnStyle, color: "var(--warn)", borderColor: "var(--warn)", fontSize: 11 }}>✕ Reject all</button>
         </div>
       </div>
 
-      <div style={{ marginTop: "auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <button onClick={() => set({ screen: "upload" })} style={ghostBtnStyle}>← Back</button>
-        <PrimaryButton disabled={!done} onClick={() => {
-          if (extracted.length) {
-            const offset = state.tasks?.length || 0;
-            const merged = [
-              ...(state.tasks || []),
-              ...extracted.map((t, i) => ({ ...t, id: `t${offset + i + 1}` })),
-            ];
-            set({ tasks: merged, sources: [...(state.sources || []), ...(state.files || [])], files: [], rawFiles: [], screen: "calendar" });
-          } else {
-            set({ screen: "calendar" });
-          }
-        }}>
-          {done
-            ? noTasks ? "Back to calendar →" : `Add ${extracted.length} ${extracted.length === 1 ? "item" : "items"} to calendar →`
-            : "Extracting…"}
-        </PrimaryButton>
+      {/* Stats row */}
+      <div style={{ display: "flex", gap: 24, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-3)" }}>
+        <span style={{ color: "var(--ok)" }}>✓ {accepted.length} accepted</span>
+        <span style={{ color: "var(--warn)" }}>✕ {proposed.filter(t => t._reviewStatus === "rejected").length} rejected</span>
+        <span>· {proposed.filter(t => t._reviewStatus === "pending").length} pending</span>
+        {milestones > 0 && <span style={{ color: "var(--accent)" }}>◆ {milestones} milestones</span>}
+        {reminders > 0 && <span style={{ color: "var(--warn)" }}>🔔 {reminders} reminders</span>}
+      </div>
+
+      <ReviewTable
+        tasks={proposed}
+        onToggle={toggleReview}
+        onEdit={() => {}}
+        onEditSave={editSave}
+      />
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <button onClick={() => setPhase("extracting")} style={ghostBtnStyle}>← Back to results</button>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          {accepted.length === 0 && (
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--warn)" }}>No events accepted yet</span>
+          )}
+          <PrimaryButton
+            disabled={accepted.length === 0}
+            onClick={confirmToCalendar}
+          >
+            Add {accepted.length} event{accepted.length !== 1 ? "s" : ""} to calendar →
+          </PrimaryButton>
+        </div>
       </div>
     </div>
   );
@@ -641,6 +963,53 @@ function TaskBlock({
   const dur = task.dur ?? 1;
   const top = (start - HOUR_START) * HOUR_PX;
   const height = Math.max(20, dur * HOUR_PX - 2);
+
+  if (task.isMilestone) {
+    return (
+      <div
+        onMouseEnter={e => onHover(task, e)}
+        onMouseLeave={onLeave}
+        onClick={() => onClick(task)}
+        style={{
+          position: "absolute", top, height: 24, left: 3, width: dayWidth - 6,
+          background: "var(--accent-tint)",
+          border: `1.5px solid var(--accent)`,
+          borderRadius: "var(--radius-sm)",
+          padding: "3px 7px", fontSize: 11, color: "var(--accent)",
+          cursor: "pointer", overflow: "hidden",
+          boxShadow: isSelected ? "0 0 0 1px var(--accent)" : "none",
+          display: "flex", alignItems: "center", gap: 5,
+        }}
+      >
+        <span style={{ fontSize: 9, flexShrink: 0 }}>◆</span>
+        <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2, fontSize: 10 }}>{task.title}</span>
+      </div>
+    );
+  }
+
+  if (task.isReminder) {
+    return (
+      <div
+        onMouseEnter={e => onHover(task, e)}
+        onMouseLeave={onLeave}
+        onClick={() => onClick(task)}
+        style={{
+          position: "absolute", top, height: 22, left: 3, width: dayWidth - 6,
+          background: "transparent",
+          border: `1px dashed var(--warn)`,
+          borderRadius: "var(--radius-sm)",
+          padding: "2px 7px", fontSize: 10, color: "var(--warn)",
+          cursor: "pointer", overflow: "hidden",
+          boxShadow: isSelected ? "0 0 0 1px var(--warn)" : "none",
+          display: "flex", alignItems: "center", gap: 5,
+        }}
+      >
+        <span style={{ fontSize: 9, flexShrink: 0 }}>🔔</span>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</span>
+      </div>
+    );
+  }
+
   return (
     <div
       onMouseEnter={e => onHover(task, e)}

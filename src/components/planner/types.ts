@@ -1,6 +1,7 @@
 export interface PlannerTask {
   id: string;
   title: string;
+  description?: string;
   cat: "work" | "meet" | "focus" | "life";
   date: string | null;
   endDate?: string | null;
@@ -10,8 +11,14 @@ export interface PlannerTask {
   prio: "high" | "med" | "low";
   reason: string;
   source: string;
+  phase?: string | null;
+  isMilestone?: boolean;
+  isReminder?: boolean;
+  dependsOn?: string[];
   recurrence?: Record<string, unknown> | null;
   condition?: string | null;
+  // review workflow state
+  _reviewStatus?: "pending" | "accepted" | "rejected";
 }
 
 export interface StagedFile {

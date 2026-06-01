@@ -1,155 +1,174 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
-import type { ExtractedItem, ExtractionResult } from "@/types";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
-// ── Resilient JSON parser (ported from prototype) ─────────────────────────────
+// ── Resilient JSON parser ─────────────────────────────────────────────────────
 
-function parseTaskArrayResilient(raw: string): ExtractedItem[] {
-  const text = raw.trim();
+function parseTaskArrayResilient(raw: string): unknown[] {
+  if (!raw) return [];
+  let s = raw.replace(/```(?:json)?\s*/gi, "").replace(/```/g, "");
+  const start = s.indexOf("[");
+  if (start < 0) return [];
+  s = s.slice(start);
 
-  // Strip markdown fences if present
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const json = fenced ? fenced[1].trim() : text;
-
-  // Try a clean parse first
-  try {
-    const parsed = JSON.parse(json);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    // Truncated JSON — try repairing by appending closing brackets
-    for (const suffix of ["]", "}]", "}}"]) {
-      try {
-        const repaired = JSON.parse(json + suffix);
-        if (Array.isArray(repaired)) return repaired;
-      } catch {
-        // continue
-      }
-    }
-    return [];
+  const closeFull = s.lastIndexOf("]");
+  if (closeFull > 0) {
+    try {
+      const arr = JSON.parse(s.slice(0, closeFull + 1));
+      if (Array.isArray(arr)) return arr;
+    } catch (_) { /* fall through */ }
   }
+
+  // Salvage truncated JSON
+  let depth = 0, inStr = false, esc = false, lastGoodEnd = -1;
+  for (let i = 1; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) { if (esc) { esc = false; continue; } if (c === "\\") { esc = true; continue; } if (c === '"') inStr = false; continue; }
+    if (c === '"') { inStr = true; continue; }
+    if (c === "{") { depth++; continue; }
+    if (c === "}") { depth--; if (depth === 0) lastGoodEnd = i + 1; continue; }
+    if (c === "]" && depth === 0) break;
+  }
+  if (lastGoodEnd < 0) return [];
+  try { const arr = JSON.parse(s.slice(0, lastGoodEnd) + "]"); return Array.isArray(arr) ? arr : []; }
+  catch (_) { return []; }
 }
 
-// ── Text extraction helpers ───────────────────────────────────────────────────
+// ── File text extraction ──────────────────────────────────────────────────────
 
-async function extractText(
-  buffer: ArrayBuffer,
-  filename: string
-): Promise<{ ok: boolean; text: string; note?: string }> {
+async function extractText(buffer: ArrayBuffer, filename: string): Promise<{ ok: boolean; text: string; note?: string }> {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-
   try {
-    if (ext === "txt" || ext === "csv" || ext === "md" || ext === "ics") {
-      const text = new TextDecoder().decode(buffer);
-      return { ok: true, text };
+    if (["txt","csv","md","ics","json","log","tsv","yml","yaml"].includes(ext)) {
+      return { ok: true, text: new TextDecoder().decode(buffer) };
     }
-
     if (ext === "xlsx" || ext === "xls") {
       const { read, utils } = await import("xlsx");
       const wb = read(buffer, { type: "array" });
-      const sheets = wb.SheetNames.map((name) =>
-        utils.sheet_to_csv(wb.Sheets[name])
+      const text = wb.SheetNames.map(name =>
+        `--- Sheet: ${name} ---\n${utils.sheet_to_csv(wb.Sheets[name])}`
       ).join("\n\n");
-      return { ok: true, text: sheets };
+      return { ok: true, text };
     }
-
     if (ext === "docx") {
       const mammoth = await import("mammoth");
       const result = await mammoth.extractRawText({ arrayBuffer: buffer });
       return { ok: true, text: result.value };
     }
-
     if (ext === "pdf") {
-      // Basic text extraction via pdfjs-dist
       const pdfjsLib = await import("pdfjs-dist");
       const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
       const pages: string[] = [];
-      for (let i = 1; i <= pdf.numPages; i++) {
+      for (let i = 1; i <= Math.min(pdf.numPages, 30); i++) {
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
-        pages.push(
-          content.items
-            .map((item) => ("str" in item ? item.str : ""))
-            .join(" ")
-        );
+        pages.push(content.items.map((item) => ("str" in item ? item.str : "")).join(" "));
+        if (pages.join("").length > 20000) break;
       }
       return { ok: true, text: pages.join("\n") };
     }
-
     return { ok: false, text: "", note: `Unsupported file type: .${ext}` };
   } catch (err) {
     return { ok: false, text: "", note: String(err) };
   }
 }
 
-// ── Extraction prompt (ported verbatim from prototype) ────────────────────────
+// ── Smart planning prompt ─────────────────────────────────────────────────────
 
-function buildPrompt(fileBlocks: string[]): string {
+function buildSmartPrompt(fileBlocks: string[]): string {
   const today = new Date();
-  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+  const dayName = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][today.getDay()];
 
-  return `You are an AI scheduling assistant. Today is ${todayIso}.
+  return `You are an expert AI planning assistant. Today is ${todayIso} (${dayName}).
 
-You are given the literal contents of the user's uploaded files below. EXTRACT every task, event, deadline, appointment, tournament, meeting, or goal that is LITERALLY mentioned in the file contents. DO NOT invent items. DO NOT pad. If the file lists 50 events, return 50. If it lists 1, return 1.
+Your job is to read documents and generate a complete, intelligent calendar plan — not just a literal copy of dates.
 
-USE THE ACTUAL DATES from the file. Events may be in the past, present, or future, and may span multiple days. Preserve their real dates. Do NOT force them into a single week.
+══════════════════════════════════════════════════════════════════
+WHAT YOU MUST DO
+══════════════════════════════════════════════════════════════════
+1. EXTRACT all tasks, events, deadlines, milestones, and goals.
+2. INFER phases and logical groupings from the content.
+3. CREATE milestones at the end of each phase or before major deadlines.
+4. CREATE reminders 1–2 days before important deadlines (mark isReminder: true).
+5. BREAK large tasks into smaller sub-tasks when appropriate.
+6. DETECT dependencies — if task B depends on task A, reflect that.
+7. ESTIMATE timelines realistically if the document doesn't specify them.
+8. AVOID scheduling conflicts by spreading tasks sensibly.
+9. USE ACTUAL DATES from the file when present.
 
-══════════════════════════════════════════════════════════════════════════
-RECURRENCE — IMPORTANT
-══════════════════════════════════════════════════════════════════════════
-Source rows may describe a RULE rather than a single occurrence:
-  • "2 times a week, in the afternoon for 2 hours, 6 times in total"
-  • "Every Monday and Wednesday"
-  • "3 days in a row, in the morning, for 2 hours"
-  • "Once, in the afternoon for 2 hours"           ← NOT recurring
+══════════════════════════════════════════════════════════════════
+DATE RECOGNITION — parse all of these formats:
+══════════════════════════════════════════════════════════════════
+• ISO:        2026-06-15
+• European:   15.06.2026
+• Long:       June 15, 2026 / 15 June 2026
+• Relative:   "next Monday", "tomorrow", "end of month", "next week"
+• Vague:      "early June" → June 3, "mid-June" → June 15, "end of June" → June 28
+• Quarters:   "Q3 2026" → July 1, 2026
+Always convert to YYYY-MM-DD. Use today (${todayIso}) as the anchor for relative dates.
 
-For any RECURRING row, return EXACTLY ONE object with a "recurrence" field.
-DO NOT enumerate the individual occurrences yourself — the system will
-expand them and spread them across the week.
+══════════════════════════════════════════════════════════════════
+RECURRENCE — same rules as before
+══════════════════════════════════════════════════════════════════
+For recurring rows, return ONE object with a "recurrence" field (never enumerate instances).
+The recurrence object:
+  { perWeek, total, daysInARow, daysOfWeek: ["mon","wed",...],
+    timeOfDay: "morning"|"noon"|"afternoon"|"evening",
+    duration, months: ["may","june",...], year, wholeYear }
 
-For non-recurring rows ("once", or a row with an explicit single date),
-leave "recurrence" as null and fill date/start/dur normally.
+For non-recurring rows, leave recurrence: null and set date/start/dur.
 
-The "recurrence" object schema (omit a field or use null if not given):
-  {
-    "perWeek":    integer 1-7,
-    "total":      integer,
-    "daysInARow": integer,
-    "daysOfWeek": ["mon","wed",...],
-    "timeOfDay":  "morning"|"noon"|"afternoon"|"evening",
-    "duration":   number of hours,
-    "months":     ["may","june",...],
-    "year":       integer | null,
-    "wholeYear":  true | false
-  }
+══════════════════════════════════════════════════════════════════
+SMART PLANNING RULES
+══════════════════════════════════════════════════════════════════
+• If a deadline exists → add a "Prepare for [X]" task 2 days before.
+• If a multi-week project → add weekly check-in milestones.
+• If approval/review is mentioned → create the review as a separate milestone.
+• If a dependency is detected → record it in dependsOn (array of task IDs like ["t3","t5"]).
+• If multiple tasks share a theme → assign them the same phase name.
+• Keep tasks realistic: don't schedule 6+ hours of work in a single day.
 
-FILES:
+══════════════════════════════════════════════════════════════════
+FILES TO ANALYZE
+══════════════════════════════════════════════════════════════════
 ${fileBlocks.join("\n\n")}
 
-For every extracted item, return an object with these fields:
-- id: "t1", "t2", ...
-- title: short string copied from the file (≤ 60 chars)
-- cat: "work" | "meet" | "focus" | "life"
-- date: "YYYY-MM-DD" or null for recurring rows
-- endDate: "YYYY-MM-DD" for multi-day events, else null
-- allDay: true if no clock time given AND not recurring, false otherwise
-- start: hour as number 0-23 when allDay=false, null for recurring
-- dur: hours 0.5-3, when allDay=false
-- prio: "high" | "med" | "low"
-- reason: ≤ 8 words terse explanation
-- source: exact filename
-- recurrence: object or null
-- condition: original recurrence text from file, or null
-
-Rules:
-- Return ONLY a JSON array — compact, no markdown fences, no prose.
-- Up to 80 items max.
-- Skip header rows and column titles.
-- If a file is unreadable, extract nothing from it.`;
+══════════════════════════════════════════════════════════════════
+OUTPUT FORMAT — return ONLY a JSON array, no prose, no fences
+══════════════════════════════════════════════════════════════════
+Each object:
+{
+  "id":          "t1" | "t2" ...     // sequential
+  "title":       string              // ≤ 60 chars, clear action verb
+  "description": string              // 1–2 sentences of context (empty string if none)
+  "cat":         "work"|"meet"|"focus"|"life"
+  "date":        "YYYY-MM-DD" | null  // null only for recurring rows
+  "endDate":     "YYYY-MM-DD" | null  // for multi-day events
+  "allDay":      boolean
+  "start":       number | null       // 0–23 decimal hour, null if allDay or recurring
+  "dur":         number | null       // hours 0.5–4
+  "prio":        "high"|"med"|"low"
+  "isMilestone": boolean             // true for phase-end milestones and key checkpoints
+  "isReminder":  boolean             // true for pre-deadline reminders
+  "phase":       string | null       // e.g. "Phase 1 – Discovery", null if not grouped
+  "dependsOn":   string[]            // IDs of tasks this depends on, e.g. ["t2","t3"]
+  "reason":      string              // ≤ 12 words: why this is placed here
+  "source":      string              // exact filename
+  "recurrence":  object | null
+  "condition":   string | null       // original recurrence text
 }
 
-// ── Route handler ─────────────────────────────────────────────────────────────
+Rules:
+• Up to 120 items. Quality over quantity — only real, actionable items.
+• Skip column headers. Skip decorative rows.
+• isMilestone tasks can be allDay:true with no start/dur.
+• isReminder tasks get prio:"high" automatically.
+• Return compact JSON — no whitespace between properties.`;
+}
+
+// ── POST handler ──────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -159,39 +178,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "files are required" }, { status: 400 });
   }
 
-  const results: ExtractionResult[] = [];
   const fileBlocks: string[] = [];
+  const skipped: { source: string; note: string }[] = [];
 
-  // Read each file locally and keep only readable text for extraction.
   for (const file of files) {
     const buffer = await file.arrayBuffer();
     const { ok, text, note } = await extractText(buffer, file.name);
-
     if (ok && text.trim()) {
-      fileBlocks.push(`=== ${file.name} ===\n${text.slice(0, 12000)}`);
+      fileBlocks.push(`=== ${file.name} ===\n${text.slice(0, 14000)}`);
     } else {
-      results.push({ items: [], source: file.name, skipped: true, skip_reason: note });
+      skipped.push({ source: file.name, note: note || "unreadable" });
     }
   }
 
   if (!fileBlocks.length) {
-    return NextResponse.json({ error: "No readable file contents", results }, { status: 422 });
+    return NextResponse.json({ error: "No readable file contents", skipped }, { status: 422 });
   }
 
-  // Call Anthropic
-  const prompt = buildPrompt(fileBlocks);
+  const prompt = buildSmartPrompt(fileBlocks);
+
   const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
+    model: "claude-sonnet-4-5",
+    max_tokens: 8096,
     messages: [{ role: "user", content: prompt }],
   });
 
   const raw = message.content
-    .filter((b) => b.type === "text")
-    .map((b) => (b as { type: "text"; text: string }).text)
+    .filter(b => b.type === "text")
+    .map(b => (b as { type: "text"; text: string }).text)
     .join("");
 
   const extracted = parseTaskArrayResilient(raw);
 
-  return NextResponse.json({ extracted, results, count: extracted.length });
+  return NextResponse.json({ extracted, skipped, count: extracted.length });
 }
