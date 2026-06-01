@@ -9,6 +9,9 @@ import {
 } from "./utils";
 import { getSampleTasks, SUGGESTED_PROMPTS } from "./sampleData";
 import { expandRecurringTasks } from "./recurrence";
+import { useAuth } from "@/contexts/AuthContext";
+import { getOrCreateDefaultProject } from "@/services/projects";
+import { loadTasks, insertTasks, deleteAllTasks } from "@/services/tasks";
 
 // ── Shared atoms ──────────────────────────────────────────────────────────────
 
@@ -72,13 +75,20 @@ function FileGlyph({ kind }: { kind: string }) {
 // ── FlowBar ──────────────────────────────────────────────────────────────────
 
 function FlowBar({
-  state, set, startAdd, resetAll,
-}: { state: PlannerState; set: (p: Partial<PlannerState>) => void; startAdd: () => void; resetAll: () => void }) {
+  state, set, startAdd, resetAll, userEmail, onSignOut,
+}: {
+  state: PlannerState;
+  set: (p: Partial<PlannerState>) => void;
+  startAdd: () => void;
+  resetAll: () => void;
+  userEmail?: string;
+  onSignOut?: () => void;
+}) {
   const inFlow = state.screen === "upload" || state.screen === "extracting";
   const hasData = (state.tasks?.length || 0) > 0 || (state.sources?.length || 0) > 0;
 
   return (
-    <div style={{
+    <div suppressHydrationWarning style={{
       height: 36, padding: "0 14px",
       borderBottom: "1px solid var(--line)",
       background: "var(--bg-1)",
@@ -144,13 +154,34 @@ function FlowBar({
           }}>+ ADD DOCUMENTS</button>
         </>
       )}
+
+      {/* User identity + sign-out */}
+      {!inFlow && userEmail && (
+        <>
+          <span style={{ width: 1, height: 14, background: "var(--line-2)", marginLeft: 4 }} />
+          <span style={{ color: "var(--fg-3)", fontSize: 10, fontFamily: "var(--font-mono)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {userEmail}
+          </span>
+          <button onClick={onSignOut} style={{
+            background: "transparent", border: "1px solid var(--line)",
+            color: "var(--fg-3)", padding: "3px 10px", borderRadius: 3,
+            fontFamily: "inherit", fontSize: 10, letterSpacing: "inherit", cursor: "pointer",
+          }}>SIGN OUT</button>
+        </>
+      )}
     </div>
   );
 }
 
 // ── Upload screen ────────────────────────────────────────────────────────────
 
-function ScreenUpload({ state, set }: { state: PlannerState; set: (p: Partial<PlannerState>) => void }) {
+function ScreenUpload({ state, set }: {
+  state: PlannerState;
+  set: (p: Partial<PlannerState>) => void;
+  startAdd?: () => void;
+  projectId?: string;
+  userId?: string;
+}) {
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const files = state.files;
@@ -285,7 +316,7 @@ function ScreenUpload({ state, set }: { state: PlannerState; set: (p: Partial<Pl
       <div style={{ marginTop: "auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <button onClick={() => set({ screen: "calendar" })} style={ghostBtnStyle}>{adding ? "← Back to calendar" : "← Cancel"}</button>
         <PrimaryButton disabled={!files.length} onClick={() => set({ screen: "extracting" })}>
-          {files.length ? `Extract ${files.reduce((s, f) => s + f.items, 0)} items →` : "Add a file to continue"}
+          {files.length ? "Extract items →" : "Add a file to continue"}
         </PrimaryButton>
       </div>
     </div>
@@ -556,7 +587,11 @@ function ReviewTable({ tasks, onToggle, onEdit, onEditSave }: {
 
 // ── Extraction screen ─────────────────────────────────────────────────────────
 
-function ScreenExtraction({ state, set }: { state: PlannerState; set: (p: Partial<PlannerState>) => void }) {
+function ScreenExtraction({ state, set }: {
+  state: PlannerState;
+  set: (p: Partial<PlannerState>) => void;
+  startAdd?: () => void;
+}) {
   const [progress, setProgress] = useState(0);
   const [proposed, setProposed] = useState<PlannerTask[]>([]);
   const [phase, setPhase] = useState<"extracting" | "review">("extracting");
@@ -1606,7 +1641,11 @@ function CalendarEmptyState({ startAdd, loadSample }: { startAdd: () => void; lo
 // ── Calendar screen ───────────────────────────────────────────────────────────
 
 function ScreenCalendar({ state, set, startAdd }: {
-  state: PlannerState; set: (p: Partial<PlannerState>) => void; startAdd: () => void;
+  state: PlannerState;
+  set: (p: Partial<PlannerState>) => void;
+  startAdd: () => void;
+  projectId?: string;
+  userId?: string;
 }) {
   const tasks = state.tasks || [];
   const hasTasks = tasks.length > 0;
@@ -1660,6 +1699,8 @@ function ScreenCalendar({ state, set, startAdd }: {
 // ── Root PlannerApp ───────────────────────────────────────────────────────────
 
 export default function PlannerApp() {
+  const { user, signOut } = useAuth();
+
   const [state, setState] = useState<PlannerState>({
     screen: "calendar",
     files: [],
@@ -1669,6 +1710,50 @@ export default function PlannerApp() {
     view: "week",
   });
 
+  // The current project ID — resolved once on mount.
+  const projectIdRef = useRef<string | null>(null);
+  const [dbLoading, setDbLoading] = useState(true);
+  const [dbError, setDbError] = useState("");
+
+  // Load persisted tasks on mount
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    (async () => {
+      setDbLoading(true);
+      setDbError("");
+
+      const project = await getOrCreateDefaultProject(user.id);
+      if (cancelled) return;
+
+      if (!project) {
+        setDbError("Could not load your plan. Please refresh.");
+        setDbLoading(false);
+        return;
+      }
+
+      projectIdRef.current = project.id;
+      const tasks = await loadTasks(project.id);
+      if (cancelled) return;
+
+      setState(s => ({
+        ...s,
+        tasks,
+        // Show sources derived from the loaded tasks (unique sources)
+        sources: [...new Map(
+          tasks.filter(t => t.source).map(t => [
+            t.source,
+            { name: t.source!, kind: "doc", size: "", items: 0 },
+          ])
+        ).values()],
+      }));
+      setDbLoading(false);
+    })();
+
+    return () => { cancelled = true; };
+  }, [user]);
+
   const set = useCallback((patch: Partial<PlannerState>) => {
     setState(s => ({ ...s, ...patch }));
   }, []);
@@ -1677,14 +1762,24 @@ export default function PlannerApp() {
     setState(s => ({ ...s, screen: "upload", files: [], rawFiles: [] }));
   }, []);
 
-  const resetAll = useCallback(() => {
+  const resetAll = useCallback(async () => {
     setState(s => ({ ...s, screen: "calendar", files: [], rawFiles: [], tasks: [], sources: [] }));
+    // Delete all persisted tasks for this project
+    if (projectIdRef.current) {
+      await deleteAllTasks(projectIdRef.current);
+    }
   }, []);
+
+  const handleSignOut = useCallback(async () => {
+    await signOut();
+    // Middleware will redirect to /login
+    window.location.href = "/login";
+  }, [signOut]);
 
   const Screen = state.screen === "upload"
     ? ScreenUpload
     : state.screen === "extracting"
-      ? ScreenExtraction
+      ? ScreenExtractionWrapper
       : ScreenCalendar;
 
   return (
@@ -1695,10 +1790,80 @@ export default function PlannerApp() {
       overflow: "hidden", position: "relative",
       display: "flex", flexDirection: "column",
     }}>
-      <FlowBar state={state} set={set} startAdd={startAdd} resetAll={resetAll} />
-      <div style={{ flex: 1, overflow: "hidden", minHeight: 0 }}>
-        <Screen state={state} set={set} startAdd={startAdd} />
+      <FlowBar
+        state={state}
+        set={set}
+        startAdd={startAdd}
+        resetAll={resetAll}
+        userEmail={user?.email}
+        onSignOut={handleSignOut}
+      />
+      <div style={{ flex: 1, overflow: "hidden", minHeight: 0, position: "relative" }}>
+        {dbLoading ? (
+          <div style={{
+            position: "absolute", inset: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-3)", letterSpacing: "0.06em",
+          }}>
+            LOADING YOUR PLAN…
+          </div>
+        ) : dbError ? (
+          <div style={{
+            position: "absolute", inset: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <div style={{
+              padding: "16px 24px", background: "rgba(168,68,43,0.08)",
+              border: "1px solid rgba(168,68,43,0.25)", borderRadius: "var(--radius-sm)",
+              fontSize: 13, color: "var(--warn)", fontFamily: "var(--font-ui)",
+            }}>{dbError}</div>
+          </div>
+        ) : (
+          <Screen
+            state={state}
+            set={set}
+            startAdd={startAdd}
+            projectId={projectIdRef.current ?? ""}
+            userId={user?.id ?? ""}
+          />
+        )}
       </div>
     </div>
   );
+}
+
+// ── Extraction wrapper that handles Supabase persistence ──────────────────────
+
+function ScreenExtractionWrapper({
+  state, set, startAdd, projectId, userId,
+}: {
+  state: PlannerState;
+  set: (p: Partial<PlannerState>) => void;
+  startAdd: () => void;
+  projectId: string;
+  userId: string;
+}) {
+  // Intercept the set call so that when the screen switches to "calendar"
+  // after confirmation, we persist the new tasks to Supabase first.
+  const setWithPersist = useCallback(async (patch: Partial<PlannerState>) => {
+    // Detect the confirmation step: screen switches to "calendar" with new tasks
+    if (patch.screen === "calendar" && patch.tasks && projectId && userId) {
+      const existing = state.tasks ?? [];
+      const incoming = patch.tasks.filter(
+        t => !existing.find(e => e.id === t.id)
+      );
+      if (incoming.length > 0) {
+        const saved = await insertTasks(incoming, projectId, userId);
+        // Remap client IDs to DB UUIDs in the merged list
+        const idMap = new Map(incoming.map((t, i) => [t.id, saved[i]?.id ?? t.id]));
+        patch = {
+          ...patch,
+          tasks: patch.tasks.map(t => idMap.has(t.id) ? { ...t, id: idMap.get(t.id)! } : t),
+        };
+      }
+    }
+    set(patch);
+  }, [set, state.tasks, projectId, userId]);
+
+  return <ScreenExtraction state={state} set={setWithPersist} startAdd={startAdd} />;
 }
