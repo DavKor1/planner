@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Planner — Turn your documents into a plan</title>
+<meta name="description" content="Planner reads your spreadsheets, notes, and PDFs and builds one optimized calendar. Drop in everything; get a schedule back." />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    /* Obsidian — dark */
+    --bg: #08090A; --bg-1: #0E1011; --bg-2: #15171A; --bg-3: #1C1F23;
+    --line: rgba(255,255,255,0.07); --line-2: rgba(255,255,255,0.12);
+    --fg: #E6E8EB; --fg-2: #9BA1A6; --fg-3: #5C6166;
+    --accent: #7B7FE3; --accent-fg: #0A0B1F; --accent-tint: rgba(123,127,227,0.12);
+    --ok: #65C28B;
+    --cat-work: #7B7FE3; --cat-meet: #E5A663; --cat-focus: #6FB8C9; --cat-life: #9F8FD1;
+    --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    --maxw: 1180px;
+    --radius: 10px; --radius-sm: 6px;
+  }
+  * , *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: var(--font-ui); font-size: 16px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  a { color: inherit; text-decoration: none; }
+  img, svg { display: block; max-width: 100%; }
+  ::selection { background: var(--accent-tint); }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 28px; }
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--fg-3);
+  }
+  .accent { color: var(--accent); }
+
+  /* Buttons */
+  .btn {
+    font-family: var(--font-ui); font-size: 14px; font-weight: 500;
+    border-radius: var(--radius-sm); padding: 11px 18px; cursor: pointer;
+    border: 1px solid var(--line-2); background: transparent; color: var(--fg);
+    transition: all .16s ease; display: inline-flex; align-items: center; gap: 8px;
+    white-space: nowrap; line-height: 1;
+  }
+  .btn:hover { border-color: var(--fg-3); background: var(--bg-2); }
+  .btn-primary {
+    background: var(--accent); color: var(--accent-fg); border-color: var(--accent);
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: #8d90ea; border-color: #8d90ea; box-shadow: 0 8px 30px -10px var(--accent); }
+  .btn-lg { padding: 14px 22px; font-size: 15px; }
+  .btn-ghost { color: var(--fg-2); border-color: transparent; }
+  .btn-ghost:hover { color: var(--fg); background: var(--bg-2); border-color: var(--line); }
+
+  /* Nav */
+  header.nav {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(8,9,10,0.72); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-inner { display: flex; align-items: center; gap: 28px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 16px; letter-spacing: -0.01em; }
+  .brand .dot { width: 11px; height: 11px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 14px var(--accent); }
+  .nav-links { display: flex; gap: 26px; margin-left: 8px; }
+  .nav-links a { color: var(--fg-2); font-size: 14px; transition: color .15s; }
+  .nav-links a:hover { color: var(--fg); }
+  .nav-cta { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .nav-toggle { display: none; }
+
+  /* Section rhythm */
+  section { padding: 96px 0; border-bottom: 1px solid var(--line); }
+  .sec-head { max-width: 680px; }
+  .sec-head h2 {
+    font-size: clamp(28px, 4vw, 42px); line-height: 1.08; letter-spacing: -0.02em;
+    font-weight: 600; margin: 14px 0 0;
+  }
+  .sec-head p { color: var(--fg-2); font-size: 17px; margin: 16px 0 0; max-width: 600px; text-wrap: pretty; }
+
+  /* Hero */
+  .hero { padding: 84px 0 72px; position: relative; overflow: hidden; }
+  .hero::before {
+    content: ""; position: absolute; inset: -40% 0 auto 0; height: 520px;
+    background: radial-gradient(60% 60% at 50% 0%, rgba(123,127,227,0.16), transparent 70%);
+    pointer-events: none;
+  }
+  .hero-inner { position: relative; text-align: center; max-width: 820px; margin: 0 auto; }
+  .hero h1 {
+    font-size: clamp(38px, 6.2vw, 70px); line-height: 1.02; letter-spacing: -0.03em;
+    font-weight: 600; margin: 22px 0 0; text-wrap: balance;
+  }
+  .hero h1 em { font-style: normal; color: var(--accent); }
+  .hero .sub { font-size: clamp(17px, 2.2vw, 20px); color: var(--fg-2); margin: 22px auto 0; max-width: 600px; text-wrap: pretty; }
+  .hero-cta { display: flex; gap: 12px; justify-content: center; margin-top: 32px; flex-wrap: wrap; }
+  .hero-note { font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); margin-top: 18px; letter-spacing: 0.03em; }
+
+  /* Product frame (faux calendar) */
+  .frame {
+    margin: 56px auto 0; max-width: 1000px; position: relative;
+    border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden;
+    background: var(--bg-1); box-shadow: 0 40px 120px -40px rgba(0,0,0,0.8);
+  }
+  .frame-bar {
+    height: 38px; display: flex; align-items: center; gap: 12px; padding: 0 14px;
+    border-bottom: 1px solid var(--line); background: var(--bg-2);
+    font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); letter-spacing: 0.06em;
+  }
+  .frame-bar .dots { display: flex; gap: 6px; }
+  .frame-bar .dots span { width: 9px; height: 9px; border-radius: 50%; background: var(--bg-3); border: 1px solid var(--line-2); }
+  .frame-bar .tag { color: var(--accent); }
+  .cal { display: grid; grid-template-columns: 48px repeat(5, 1fr); }
+  .cal .corner, .cal .col-head { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 10px 0; text-align: center;
+    font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); letter-spacing: 0.05em; }
+  .cal .col-head span { color: var(--fg-2); }
+  .cal .gutter { border-right: 1px solid var(--line); }
+  .cal .gutter div { height: 56px; border-bottom: 1px solid var(--line); font-family: var(--font-mono); font-size: 9px; color: var(--fg-3); padding: 4px 6px 0; text-align: right; }
+  .cal .day { border-right: 1px solid var(--line); position: relative; }
+  .cal .day .slot { height: 56px; border-bottom: 1px solid var(--line); }
+  .ev {
+    position: absolute; left: 5px; right: 5px; border-radius: 5px; padding: 6px 8px;
+    font-size: 11px; line-height: 1.25; overflow: hidden; border: 1px solid;
+  }
+  .ev .t { font-weight: 500; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ev .m { font-family: var(--font-mono); font-size: 9px; margin-top: 2px; opacity: 0.85; }
+  .ev.work  { background: rgba(123,127,227,0.16); border-color: rgba(123,127,227,0.5); }
+  .ev.work .m { color: var(--cat-work); }
+  .ev.meet  { background: rgba(229,166,99,0.14); border-color: rgba(229,166,99,0.45); }
+  .ev.meet .m { color: var(--cat-meet); }
+  .ev.focus { background: rgba(111,184,201,0.14); border-color: rgba(111,184,201,0.45); }
+  .ev.focus .m { color: var(--cat-focus); }
+  .ev.life  { background: rgba(159,143,209,0.14); border-color: rgba(159,143,209,0.45); }
+  .ev.life .m { color: var(--cat-life); }
+
+  /* Formats strip */
+  .strip { padding: 30px 0; border-bottom: 1px solid var(--line); }
+  .strip-inner { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; justify-content: center;
+    font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); letter-spacing: 0.05em; }
+  .strip-inner b { color: var(--fg-2); font-weight: 500; }
+  .strip-inner .chip { border: 1px solid var(--line); border-radius: 4px; padding: 4px 9px; color: var(--fg-2); }
+
+  /* Feature grid */
+  .grid { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line);
+    border-radius: var(--radius); overflow: hidden; margin-top: 48px; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .card { background: var(--bg-1); padding: 30px 28px; }
+  .card .ico { width: 38px; height: 38px; border-radius: 8px; display: grid; place-items: center;
+    background: var(--accent-tint); color: var(--accent); font-family: var(--font-mono); font-size: 16px; margin-bottom: 18px; border: 1px solid var(--line-2); }
+  .card h3 { font-size: 17px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .card p { color: var(--fg-2); font-size: 14.5px; margin: 0; text-wrap: pretty; }
+
+  /* Benefits — split */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+  .benefit-list { list-style: none; padding: 0; margin: 36px 0 0; display: flex; flex-direction: column; gap: 22px; }
+  .benefit-list li { display: flex; gap: 14px; }
+  .benefit-list .b-mark { flex: 0 0 22px; height: 22px; border-radius: 6px; background: var(--accent-tint); color: var(--accent);
+    display: grid; place-items: center; font-family: var(--font-mono); font-size: 12px; margin-top: 1px; }
+  .benefit-list h4 { margin: 0 0 4px; font-size: 15.5px; font-weight: 600; }
+  .benefit-list p { margin: 0; color: var(--fg-2); font-size: 14.5px; }
+  .stat-card { background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius); padding: 34px; display: grid; gap: 26px; }
+  .stat-card .row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+  .stat-card .n { font-size: 40px; font-weight: 600; letter-spacing: -0.02em; }
+  .stat-card .l { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); letter-spacing: 0.05em; text-align: right; text-transform: uppercase; }
+  .stat-card .div { height: 1px; background: var(--line); }
+
+  /* How it works */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 48px; }
+  .step { background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px; position: relative; }
+  .step .num { font-family: var(--font-mono); font-size: 12px; color: var(--accent); letter-spacing: 0.08em; }
+  .step h3 { font-size: 18px; margin: 14px 0 8px; font-weight: 600; letter-spacing: -0.01em; }
+  .step p { color: var(--fg-2); font-size: 14.5px; margin: 0; }
+  .step .line { height: 1px; background: var(--line-2); margin: 18px 0 0; }
+
+  /* Testimonials */
+  .quotes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 48px; }
+  .quote { background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px; display: flex; flex-direction: column; gap: 20px; }
+  .quote p { margin: 0; font-size: 15px; color: var(--fg); line-height: 1.55; text-wrap: pretty; }
+  .quote .who { display: flex; align-items: center; gap: 12px; margin-top: auto; }
+  .quote .av { width: 36px; height: 36px; border-radius: 50%; background: var(--bg-3); border: 1px solid var(--line-2);
+    display: grid; place-items: center; font-family: var(--font-mono); font-size: 12px; color: var(--fg-2); }
+  .quote .who b { font-size: 14px; font-weight: 600; display: block; }
+  .quote .who span { font-size: 12px; color: var(--fg-3); font-family: var(--font-mono); }
+  .quote-note { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); margin-top: 22px; letter-spacing: 0.04em; }
+
+  /* Pricing */
+  .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 48px; align-items: stretch; }
+  .tier { background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius); padding: 32px; display: flex; flex-direction: column; }
+  .tier.feat { border-color: var(--accent); background: linear-gradient(180deg, var(--accent-tint), transparent 60%), var(--bg-1); }
+  .tier .badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; color: var(--accent); text-transform: uppercase; margin-bottom: 14px; height: 14px; }
+  .tier h3 { font-size: 19px; margin: 0 0 6px; font-weight: 600; }
+  .tier .desc { color: var(--fg-2); font-size: 13.5px; margin: 0 0 22px; min-height: 38px; }
+  .tier .price { display: flex; align-items: baseline; gap: 6px; margin-bottom: 24px; }
+  .tier .price .amt { font-size: 42px; font-weight: 600; letter-spacing: -0.02em; }
+  .tier .price .per { font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); }
+  .tier ul { list-style: none; padding: 0; margin: 0 0 28px; display: flex; flex-direction: column; gap: 12px; }
+  .tier li { display: flex; gap: 10px; font-size: 14px; color: var(--fg-2); }
+  .tier li .ck { color: var(--accent); font-family: var(--font-mono); }
+  .tier .btn { width: 100%; justify-content: center; margin-top: auto; }
+
+  /* Final CTA */
+  .cta-band { text-align: center; border: none; }
+  .cta-card { position: relative; border: 1px solid var(--line-2); border-radius: 18px; padding: 72px 32px; overflow: hidden;
+    background: var(--bg-1); }
+  .cta-card::before { content: ""; position: absolute; inset: 0; background: radial-gradient(70% 120% at 50% 0%, rgba(123,127,227,0.18), transparent 65%); pointer-events: none; }
+  .cta-card h2 { position: relative; font-size: clamp(30px, 4.5vw, 48px); letter-spacing: -0.02em; margin: 0; font-weight: 600; }
+  .cta-card p { position: relative; color: var(--fg-2); font-size: 18px; margin: 16px auto 0; max-width: 480px; }
+  .cta-card .hero-cta { margin-top: 30px; }
+
+  /* Footer */
+  footer { padding: 64px 0 40px; }
+  .foot-grid { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 40px; }
+  .foot-brand p { color: var(--fg-2); font-size: 14px; margin: 16px 0 0; max-width: 280px; }
+  .foot-col h5 { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-3); margin: 0 0 16px; }
+  .foot-col a { display: block; color: var(--fg-2); font-size: 14px; margin-bottom: 11px; transition: color .15s; }
+  .foot-col a:hover { color: var(--fg); }
+  .foot-bottom { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+    margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--line);
+    font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); }
+  .foot-bottom a { color: var(--fg-3); }
+  .foot-bottom a:hover { color: var(--fg-2); }
+
+  @media (max-width: 900px) {
+    .grid-3 { grid-template-columns: 1fr 1fr; }
+    .steps, .quotes, .tiers { grid-template-columns: 1fr; }
+    .split { grid-template-columns: 1fr; gap: 36px; }
+    .foot-grid { grid-template-columns: 1fr 1fr; gap: 32px; }
+  }
+  @media (max-width: 680px) {
+    section { padding: 68px 0; }
+    .nav-links { display: none; }
+    .grid-3 { grid-template-columns: 1fr; }
+    .cal { grid-template-columns: 36px repeat(5, 1fr); }
+    .cal .col-head, .cal .corner { font-size: 8px; }
+    .foot-grid { grid-template-columns: 1fr; gap: 28px; }
+    .hero-cta .btn { flex: 1; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top"><span class="dot"></span> Planner</a>
+    <nav class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#pricing">Pricing</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn btn-ghost" href="#">Sign Up</a>
+      <a class="btn btn-primary" href="#">Get Started</a>
+    </div>
+  </div>
+</header>
+
+<a id="top"></a>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap hero-inner">
+    <div class="eyebrow">AI scheduling assistant</div>
+    <h1>Drop in your documents.<br />Get back <em>a plan.</em></h1>
+    <p class="sub">Planner reads your spreadsheets, meeting notes, PDFs, and photos of whiteboards — then builds one optimized calendar from everything it finds. No manual entry.</p>
+    <div class="hero-cta">
+      <a class="btn btn-primary btn-lg" href="#">Start Planning</a>
+      <a class="btn btn-lg" href="#how">See how it works →</a>
+    </div>
+    <div class="hero-note">No credit card · We never train on your data</div>
+
+    <!-- Product visual -->
+    <div class="frame" aria-hidden="true">
+      <div class="frame-bar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <span class="tag">● OBSIDIAN</span>
+        <span>JUNE 2026 · WEEK VIEW</span>
+      </div>
+      <div class="cal">
+        <div class="corner"></div>
+        <div class="col-head">MON <span>01</span></div>
+        <div class="col-head">TUE <span>02</span></div>
+        <div class="col-head">WED <span>03</span></div>
+        <div class="col-head">THU <span>04</span></div>
+        <div class="col-head">FRI <span>05</span></div>
+
+        <div class="gutter"><div>08</div><div>10</div><div>12</div><div>14</div></div>
+
+        <div class="day">
+          <div class="slot"></div><div class="slot"></div><div class="slot"></div><div class="slot"></div>
+          <div class="ev work" style="top:6px;height:62px;"><div class="t">Sprint planning</div><div class="m">WORK · from roadmap.xlsx</div></div>
+          <div class="ev focus" style="top:128px;height:80px;"><div class="t">Deep work — spec</div><div class="m">FOCUS · 2h block</div></div>
+        </div>
+        <div class="day">
+          <div class="slot"></div><div class="slot"></div><div class="slot"></div><div class="slot"></div>
+          <div class="ev meet" style="top:62px;height:50px;"><div class="t">Design review</div><div class="m">MEETING · notes.pdf</div></div>
+          <div class="ev life" style="top:170px;height:50px;"><div class="t">Gym</div><div class="m">LIFE · recurring</div></div>
+        </div>
+        <div class="day">
+          <div class="slot"></div><div class="slot"></div><div class="slot"></div><div class="slot"></div>
+          <div class="ev work" style="top:18px;height:48px;"><div class="t">1:1 — Priya</div><div class="m">WORK · calendar.ics</div></div>
+          <div class="ev focus" style="top:120px;height:70px;"><div class="t">Write Q3 brief</div><div class="m">FOCUS · deadline Fri</div></div>
+        </div>
+        <div class="day">
+          <div class="slot"></div><div class="slot"></div><div class="slot"></div><div class="slot"></div>
+          <div class="ev meet" style="top:6px;height:56px;"><div class="t">Customer call</div><div class="m">MEETING · 30m</div></div>
+          <div class="ev work" style="top:140px;height:50px;"><div class="t">Review PRs</div><div class="m">WORK · tasks.csv</div></div>
+        </div>
+        <div class="day">
+          <div class="slot"></div><div class="slot"></div><div class="slot"></div><div class="slot"></div>
+          <div class="ev focus" style="top:30px;height:88px;"><div class="t">Q3 brief — due</div><div class="m">FOCUS · high prio</div></div>
+          <div class="ev life" style="top:176px;height:44px;"><div class="t">Dinner — Sam</div><div class="m">LIFE</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FORMATS STRIP -->
+<div class="strip">
+  <div class="wrap strip-inner">
+    <b>Reads everything you throw at it</b>
+    <span class="chip">.xlsx</span>
+    <span class="chip">.pdf</span>
+    <span class="chip">.docx</span>
+    <span class="chip">.csv</span>
+    <span class="chip">.txt</span>
+    <span class="chip">.ics</span>
+    <span class="chip">.png / .jpg</span>
+  </div>
+</div>
+
+<!-- PRODUCT EXPLANATION / FEATURES -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">What it does</div>
+      <h2>Your scattered inputs, scheduled into one place.</h2>
+      <p>Most planning lives in a dozen files and your head. Planner pulls every task, deadline, meeting, and recurring commitment out of your documents and places it on a single calendar you actually trust.</p>
+    </div>
+
+    <div class="grid grid-3">
+      <div class="card">
+        <div class="ico">↑</div>
+        <h3>Upload anything</h3>
+        <p>Spreadsheets, meeting notes, PDFs, calendar exports, even a photo of a whiteboard. Up to 20 files at once.</p>
+      </div>
+      <div class="card">
+        <div class="ico">✦</div>
+        <h3>AI extraction</h3>
+        <p>The model reads the actual contents and lifts only what's really there — no invented filler, no padding.</p>
+      </div>
+      <div class="card">
+        <div class="ico">↻</div>
+        <h3>Recurrence-aware</h3>
+        <p>"Twice a week for six weeks" becomes the right set of events, spread out and de-overlapped automatically.</p>
+      </div>
+      <div class="card">
+        <div class="ico">⊕</div>
+        <h3>Always additive</h3>
+        <p>New documents merge into your existing plan. Add more anytime — nothing you've built is ever lost.</p>
+      </div>
+      <div class="card">
+        <div class="ico">◷</div>
+        <h3>Day / week / month</h3>
+        <p>Switch views to plan at the right altitude, from a single packed day to a whole quarter.</p>
+      </div>
+      <div class="card">
+        <div class="ico">⌖</div>
+        <h3>Traceable</h3>
+        <p>Every item shows exactly which file it came from and why it was scheduled. Hover to see the reasoning.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BENEFITS -->
+<section id="benefits">
+  <div class="wrap split">
+    <div>
+      <div class="eyebrow">Why people switch</div>
+      <h2 style="font-size:clamp(26px,3.6vw,38px);line-height:1.1;letter-spacing:-0.02em;font-weight:600;margin:14px 0 0;">Stop transcribing. Start planning.</h2>
+      <ul class="benefit-list">
+        <li>
+          <span class="b-mark">✓</span>
+          <div>
+            <h4>Minutes, not afternoons</h4>
+            <p>What used to be an hour of copying dates into a calendar is now a single upload.</p>
+          </div>
+        </li>
+        <li>
+          <span class="b-mark">✓</span>
+          <div>
+            <h4>Nothing slips</h4>
+            <p>Deadlines buried on row 200 of a spreadsheet get the same attention as the obvious ones.</p>
+          </div>
+        </li>
+        <li>
+          <span class="b-mark">✓</span>
+          <div>
+            <h4>Private by default</h4>
+            <p>Your documents are yours. We never train on your data, and you control what's stored.</p>
+          </div>
+        </li>
+        <li>
+          <span class="b-mark">✓</span>
+          <div>
+            <h4>Built to grow with you</h4>
+            <p>Keep adding plans and files over weeks and months. Your calendar just keeps getting smarter.</p>
+          </div>
+        </li>
+      </ul>
+    </div>
+    <div class="stat-card">
+      <div class="row"><span class="n accent">20</span><span class="l">files per<br />upload</span></div>
+      <div class="div"></div>
+      <div class="row"><span class="n">8+</span><span class="l">file formats<br />supported</span></div>
+      <div class="div"></div>
+      <div class="row"><span class="n">~12<span style="font-size:20px;">s</span></span><span class="l">from upload<br />to calendar</span></div>
+      <div class="div"></div>
+      <div class="row"><span class="n">0</span><span class="l">rows of manual<br />data entry</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">How it works</div>
+      <h2>Three steps to a finished schedule.</h2>
+      <p>No setup, no templates, no learning curve. Open Planner to an empty calendar and feed it your material.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="num">STEP 01</div>
+        <h3>Drop your files</h3>
+        <p>Drag in spreadsheets, notes, PDFs, or images. Stage as many as you like, then hit extract.</p>
+        <div class="line"></div>
+      </div>
+      <div class="step">
+        <div class="num">STEP 02</div>
+        <h3>Watch it extract</h3>
+        <p>Planner reads each file, pulls out every real task and event, and resolves recurring rules live.</p>
+        <div class="line"></div>
+      </div>
+      <div class="step">
+        <div class="num">STEP 03</div>
+        <h3>Review your calendar</h3>
+        <p>Items land color-coded and dated. Add more documents whenever — it all merges into one plan.</p>
+        <div class="line"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TESTIMONIALS (placeholder) -->
+<section id="testimonials">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">From early users</div>
+      <h2>Planning teams are already moving faster.</h2>
+    </div>
+    <div class="quotes">
+      <div class="quote">
+        <p>"I dropped in a season schedule spreadsheet and it correctly spread every recurring practice across the right weeks. That would've taken me an hour by hand."</p>
+        <div class="who">
+          <div class="av">DC</div>
+          <div><b>Placeholder Name</b><span>Operations lead</span></div>
+        </div>
+      </div>
+      <div class="quote">
+        <p>"The traceability sold me — every event tells me which file and which row it came from, so I trust it enough to stop double-checking."</p>
+        <div class="who">
+          <div class="av">MR</div>
+          <div><b>Placeholder Name</b><span>Founder</span></div>
+        </div>
+      </div>
+      <div class="quote">
+        <p>"We feed it a new doc every week and it just keeps building. The plan never resets, it only gets more complete."</p>
+        <div class="who">
+          <div class="av">AK</div>
+          <div><b>Placeholder Name</b><span>Program manager</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="quote-note">// PLACEHOLDER — swap in real customer quotes, names, and roles before launch.</div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section id="pricing">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Pricing</div>
+      <h2>Start free. Upgrade when you outgrow it.</h2>
+      <p>Every plan includes AI extraction, recurrence handling, and full traceability. Pick the limits that fit.</p>
+    </div>
+    <div class="tiers">
+      <div class="tier">
+        <div class="badge"></div>
+        <h3>Free</h3>
+        <p class="desc">For trying Planner on a real plan of your own.</p>
+        <div class="price"><span class="amt">$0</span><span class="per">/ forever</span></div>
+        <ul>
+          <li><span class="ck">›</span> 1 active plan</li>
+          <li><span class="ck">›</span> 5 documents / month</li>
+          <li><span class="ck">›</span> Day, week &amp; month views</li>
+          <li><span class="ck">›</span> Community support</li>
+        </ul>
+        <a class="btn" href="#">Get Started</a>
+      </div>
+      <div class="tier feat">
+        <div class="badge">Most popular</div>
+        <h3>Pro</h3>
+        <p class="desc">For people running multiple plans at once.</p>
+        <div class="price"><span class="amt">$12</span><span class="per">/ month</span></div>
+        <ul>
+          <li><span class="ck">›</span> Unlimited plans</li>
+          <li><span class="ck">›</span> Unlimited documents</li>
+          <li><span class="ck">›</span> Image OCR extraction</li>
+          <li><span class="ck">›</span> Priority processing</li>
+          <li><span class="ck">›</span> Email support</li>
+        </ul>
+        <a class="btn btn-primary" href="#">Start Planning</a>
+      </div>
+      <div class="tier">
+        <div class="badge"></div>
+        <h3>Team</h3>
+        <p class="desc">For organizations planning together.</p>
+        <div class="price"><span class="amt">$29</span><span class="per">/ user / mo</span></div>
+        <ul>
+          <li><span class="ck">›</span> Everything in Pro</li>
+          <li><span class="ck">›</span> Shared workspaces</li>
+          <li><span class="ck">›</span> Roles &amp; permissions</li>
+          <li><span class="ck">›</span> SSO &amp; audit log</li>
+          <li><span class="ck">›</span> Dedicated support</li>
+        </ul>
+        <a class="btn" href="#">Contact Sales</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="cta-band">
+  <div class="wrap">
+    <div class="cta-card">
+      <h2>Turn today's pile of documents<br />into this week's plan.</h2>
+      <p>Open an empty calendar, drop in your files, and let Planner do the scheduling.</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary btn-lg" href="#">Get Started</a>
+        <a class="btn btn-lg" href="#">Sign Up free</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a class="brand" href="#top"><span class="dot"></span> Planner</a>
+        <p>The AI scheduling assistant that reads your documents and builds one calendar you can trust.</p>
+      </div>
+      <div class="foot-col">
+        <h5>Product</h5>
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#">Changelog</a>
+      </div>
+      <div class="foot-col">
+        <h5>Company</h5>
+        <a href="#">About</a>
+        <a href="#">Blog</a>
+        <a href="#">Privacy</a>
+        <a href="#">Terms</a>
+      </div>
+      <div class="foot-col">
+        <h5>Contact</h5>
+        <a href="mailto:hello@planner.app">hello@planner.app</a>
+        <a href="#">Support</a>
+        <a href="#">Status</a>
+        <a href="#">X / Twitter</a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>© 2026 Planner. All rights reserved.</span>
+      <span>Built with privacy in mind · We never train on your data</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

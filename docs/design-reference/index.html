@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Planner — 3 directions</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  *, *::before, *::after { box-sizing: border-box; }
+  button { font-family: inherit; }
+  @keyframes plannerFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  /* Stop horizontal scroll bleed inside the calendar grid */
+  .planner-app-root { contain: layout paint; }
+</style>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="data.js"></script>
+<script src="themes.js"></script>
+<script src="recurrence.js"></script>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel" src="flow-screens.jsx"></script>
+<script type="text/babel" src="calendar-screen.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+
+<script type="text/babel" data-presets="env,react">
+  const { useState } = React;
+
+  // Tweak defaults (host can rewrite this block)
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "tone": "light",
+    "view": "week",
+    "startScreen": "calendar"
+  }/*EDITMODE-END*/;
+
+  function App() {
+    const [t, setTweak] = window.useTweaks(TWEAK_DEFAULTS);
+
+    const directions = [
+      { id: "obsidian", label: "01 · Obsidian",
+        sub: "Canonical Linear-sleek. Inter + JetBrains Mono, indigo accent, dense 1px borders." },
+      { id: "terminal", label: "02 · Terminal",
+        sub: "Operator console. Monospace throughout, phosphor-green AI accent, 2px corners." },
+      { id: "bone",     label: "03 · Bone",
+        sub: "Warm light counterpart. Instrument Serif display + Inter body, terracotta accent." },
+    ];
+
+    return (
+      <window.DesignCanvas>
+        <window.DCSection
+          id="directions"
+          title="AI Planner — 3 visual directions"
+          subtitle="Each artboard is the same interactive planner: open to an empty calendar → Start Planning → upload docs → AI extracts → items land on the calendar. Add more plans or documents anytime without restarting. Click any task; hover for AI reasoning. Use Tweaks to flip tone and default view."
+        >
+          {directions.map(d => (
+            <window.DCArtboard
+              key={d.id}
+              id={d.id}
+              label={d.label + " — " + d.sub}
+              width={1440}
+              height={900}
+            >
+              <div className="planner-app-root" style={{ width: "100%", height: "100%" }}>
+                <window.PlannerApp
+                  direction={d.id}
+                  tone={t.tone}
+                  defaultView={t.view}
+                  startScreen={t.startScreen}
+                  instanceId={d.id}
+                />
+              </div>
+            </window.DCArtboard>
+          ))}
+        </window.DCSection>
+
+        <window.TweaksPanel title="Tweaks">
+          <window.TweakSection label="Tone">
+            <window.TweakRadio
+              label="Mode" value={t.tone}
+              onChange={v => setTweak("tone", v)}
+              options={[
+                { value: "dark",  label: "Dark" },
+                { value: "light", label: "Light" },
+              ]}
+            />
+          </window.TweakSection>
+          <window.TweakSection label="Calendar">
+            <window.TweakSelect
+              label="Default view" value={t.view}
+              onChange={v => setTweak("view", v)}
+              options={[
+                { value: "day",   label: "Day" },
+                { value: "week",  label: "Week" },
+                { value: "month", label: "Month" },
+              ]}
+            />
+            <window.TweakSelect
+              label="Start at" value={t.startScreen}
+              onChange={v => setTweak("startScreen", v)}
+              options={[
+                { value: "calendar",   label: "1 · Calendar (empty)" },
+                { value: "upload",     label: "2 · Add documents" },
+                { value: "extracting", label: "3 · Extracting" },
+              ]}
+            />
+          </window.TweakSection>
+        </window.TweaksPanel>
+      </window.DesignCanvas>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
