@@ -87,7 +87,7 @@ function FlowBar({
       color: "var(--fg-3)", letterSpacing: "0.05em",
       flexShrink: 0,
     }}>
-      <span style={{ color: "var(--accent)" }}>● OBSIDIAN</span>
+      <span style={{ color: "var(--accent)" }}>● BONE</span>
       <span style={{ width: 1, height: 14, background: "var(--line-2)" }} />
 
       {inFlow ? (

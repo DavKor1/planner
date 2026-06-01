@@ -1,49 +1,46 @@
-/* Planner — Global Styles (Obsidian direction) */
-/* Design tokens ported from themes.js */
+/* Planner — Global Styles (Bone direction · light) */
+/* Design tokens from themes.js — Bone light palette */
 
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
 
 :root {
-  /* Obsidian dark palette */
-  --bg:   #08090A;
-  --bg-1: #0E1011;
-  --bg-2: #15171A;
-  --bg-3: #1C1F23;
+  /* Bone light palette */
+  --bg:   #F4F1EA;
+  --bg-1: #EFEBE2;
+  --bg-2: #FBF8F2;
+  --bg-3: #FFFDF7;
 
-  --line:   rgba(255, 255, 255, 0.06);
-  --line-2: rgba(255, 255, 255, 0.10);
+  --line:   rgba(40, 30, 20, 0.10);
+  --line-2: rgba(40, 30, 20, 0.18);
 
-  --fg:   #E6E8EB;
-  --fg-2: #9BA1A6;
-  --fg-3: #5C6166;
+  --fg:   #1A1815;
+  --fg-2: #5E574E;
+  --fg-3: #8F867A;
 
-  --accent:    #7B7FE3;
-  --accent-2:  #7B7FE3;
-  --accent-fg: #0A0B1F;
-  --accent-tint: rgba(123, 127, 227, 0.12);
+  --accent:      #B5552E;
+  --accent-2:    #B5552E;
+  --accent-fg:   #FFF7EE;
+  --accent-tint: rgba(181, 85, 46, 0.10);
 
-  --ok:   #65C28B;
-  --warn: #E07A5F;
+  --ok:   #3B7A4F;
+  --warn: #A8442B;
+
+  /* Category colors — Bone light */
+  --cat-work:  #B5552E;
+  --cat-meet:  #7B6B3F;
+  --cat-focus: #386D6A;
+  --cat-life:  #6B4F8A;
 
   /* Typography */
-  --font-ui:   var(--font-inter), "Inter", system-ui, sans-serif;
-  --font-mono: var(--font-mono), "JetBrains Mono", monospace;
-
-  /* Category colors */
-  --cat-work:  #7B7FE3;
-  --cat-meet:  #E5A663;
-  --cat-focus: #6FB8C9;
-  --cat-life:  #9F8FD1;
-
-  /* Typography — display */
-  --font-display:      'Inter', -apple-system, sans-serif;
-  --font-ui:           'Inter', -apple-system, system-ui, sans-serif;
-  --display-weight:    600;
-  --display-tracking: -0.02em;
+  --font-ui:           var(--font-inter), 'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono:         var(--font-jetbrains), 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --font-display:      var(--font-instrument-serif), 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
+  --display-weight:    400;
+  --display-tracking: -0.015em;
 
   /* Spacing / layout */
-  --radius:    6px;
-  --radius-sm: 4px;
+  --radius:    4px;
+  --radius-sm: 3px;
   --radius-lg: 8px;
 }
 
@@ -110,9 +107,7 @@ a:hover { opacity: 0.8; }
 }
 .btn-primary:hover { opacity: 0.9; background: var(--accent); }
 
-.btn-ghost {
-  border-color: transparent;
-}
+.btn-ghost { border-color: transparent; }
 .btn-ghost:hover { background: var(--bg-2); border-color: transparent; }
 
 /* Animations */
@@ -120,9 +115,7 @@ a:hover { opacity: 0.8; }
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.fade-in {
-  animation: plannerFadeIn 0.3s ease-out both;
-}
+.fade-in { animation: plannerFadeIn 0.3s ease-out both; }
 
 /* Mono label utility */
 .mono {
@@ -130,9 +123,3 @@ a:hover { opacity: 0.8; }
   font-size: 11px;
   letter-spacing: 0.08em;
 }
-
-/* Category color chips */
-.cat-work  { background: rgba(123, 127, 227, 0.20); color: #9B9FE8; }
-.cat-meet  { background: rgba(101, 194, 139, 0.20); color: var(--ok); }
-.cat-focus { background: rgba(240, 180,  80, 0.20); color: #F0B450; }
-.cat-life  { background: rgba(224, 122,  95, 0.20); color: var(--warn); }
