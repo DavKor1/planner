@@ -29,8 +29,21 @@
   --font-ui:   var(--font-inter), "Inter", system-ui, sans-serif;
   --font-mono: var(--font-mono), "JetBrains Mono", monospace;
 
+  /* Category colors */
+  --cat-work:  #7B7FE3;
+  --cat-meet:  #E5A663;
+  --cat-focus: #6FB8C9;
+  --cat-life:  #9F8FD1;
+
+  /* Typography — display */
+  --font-display:      'Inter', -apple-system, sans-serif;
+  --font-ui:           'Inter', -apple-system, system-ui, sans-serif;
+  --display-weight:    600;
+  --display-tracking: -0.02em;
+
   /* Spacing / layout */
-  --radius: 4px;
+  --radius:    6px;
+  --radius-sm: 4px;
   --radius-lg: 8px;
 }
 

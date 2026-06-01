@@ -15,17 +15,20 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Planner — AI Scheduling Assistant",
-  description:
-    "Upload your documents and let AI build one calendar you can trust.",
+  title: "Planner",
+  description: "AI scheduling assistant for turning files into calendar items.",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
-      <body>{children}</body>
+    <html
+      lang="en"
+      className={`${inter.variable} ${jetbrainsMono.variable}`}
+      suppressHydrationWarning
+    >
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

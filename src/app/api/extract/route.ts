@@ -1,6 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import type { ExtractedItem, ExtractionResult } from "@/types";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
@@ -69,7 +68,11 @@ async function extractText(
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
-        pages.push(content.items.map((item: { str?: string }) => item.str ?? "").join(" "));
+        pages.push(
+          content.items
+            .map((item) => ("str" in item ? item.str : ""))
+            .join(" ")
+        );
       }
       return { ok: true, text: pages.join("\n") };
     }
@@ -149,58 +152,20 @@ Rules:
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-
-  // Auth check
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const formData = await request.formData();
-  const planId = formData.get("plan_id") as string;
   const files = formData.getAll("files") as File[];
 
-  if (!planId || !files.length) {
-    return NextResponse.json({ error: "plan_id and files are required" }, { status: 400 });
-  }
-
-  // Verify plan belongs to user
-  const { data: plan, error: planError } = await supabase
-    .from("plans")
-    .select("id")
-    .eq("id", planId)
-    .eq("user_id", user.id)
-    .single();
-
-  if (planError || !plan) {
-    return NextResponse.json({ error: "Plan not found" }, { status: 404 });
+  if (!files.length) {
+    return NextResponse.json({ error: "files are required" }, { status: 400 });
   }
 
   const results: ExtractionResult[] = [];
   const fileBlocks: string[] = [];
 
-  // Read and upload each file
+  // Read each file locally and keep only readable text for extraction.
   for (const file of files) {
     const buffer = await file.arrayBuffer();
     const { ok, text, note } = await extractText(buffer, file.name);
-
-    // Upload to Supabase Storage
-    const storagePath = `${user.id}/${planId}/${Date.now()}-${file.name}`;
-    await supabase.storage
-      .from("documents")
-      .upload(storagePath, buffer, { contentType: file.type });
-
-    // Record document in DB
-    await supabase.from("documents").insert({
-      plan_id: planId,
-      user_id: user.id,
-      filename: file.name,
-      size: file.size,
-      storage_path: storagePath,
-      status: ok ? "processing" : "error",
-      error_message: note,
-    });
 
     if (ok && text.trim()) {
       fileBlocks.push(`=== ${file.name} ===\n${text.slice(0, 12000)}`);
@@ -227,40 +192,6 @@ export async function POST(request: NextRequest) {
     .join("");
 
   const extracted = parseTaskArrayResilient(raw);
-
-  // Normalize and insert tasks
-  if (extracted.length) {
-    const tasks = extracted.map((item) => ({
-      plan_id: planId,
-      user_id: user.id,
-      title: item.title,
-      cat: item.cat,
-      date: item.date ?? null,
-      end_date: item.end_date ?? null,
-      all_day: item.all_day ?? true,
-      start: item.start ?? null,
-      dur: item.dur ?? null,
-      prio: item.prio ?? "medium",
-      reason: item.reason ?? null,
-      source: item.source ?? null,
-      recurrence: item.recurrence ?? null,
-      condition: item.condition ?? null,
-    }));
-
-    await supabase.from("tasks").insert(tasks);
-
-    // Update document statuses to done
-    for (const block of fileBlocks) {
-      const filename = block.match(/^=== (.+) ===/)?.[1];
-      if (filename) {
-        await supabase
-          .from("documents")
-          .update({ status: "done", item_count: extracted.filter((t) => t.source === filename).length })
-          .eq("plan_id", planId)
-          .eq("filename", filename);
-      }
-    }
-  }
 
   return NextResponse.json({ extracted, results, count: extracted.length });
 }
