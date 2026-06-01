@@ -7,7 +7,7 @@ import {
   MONTH_NAMES, MONTH_NAMES_SHORT, DAY_NAMES_SHORT,
   HOUR_START, HOUR_END, HOUR_PX, TIME_COL, fmtHour,
 } from "./utils";
-import { SAMPLE_TASKS, SUGGESTED_PROMPTS } from "./sampleData";
+import { getSampleTasks, SUGGESTED_PROMPTS } from "./sampleData";
 import { expandRecurringTasks } from "./recurrence";
 
 // ── Shared atoms ──────────────────────────────────────────────────────────────
@@ -1630,7 +1630,7 @@ function ScreenCalendar({ state, set, startAdd }: {
   useEffect(() => { setCurrentDate(initialDate); }, [initialDate]);
 
   const loadSample = useCallback(() => {
-    set({ tasks: SAMPLE_TASKS, sources: [{ name: "sample-week.ics", kind: "ics", size: "1 KB", items: 17 }] });
+    set({ tasks: getSampleTasks(), sources: [{ name: "sample-week.ics", kind: "ics", size: "1 KB", items: 17 }] });
   }, [set]);
 
   return (
@@ -1688,7 +1688,7 @@ export default function PlannerApp() {
       : ScreenCalendar;
 
   return (
-    <div style={{
+    <div suppressHydrationWarning style={{
       width: "100vw", height: "100vh",
       background: "var(--bg)", color: "var(--fg)",
       fontFamily: "var(--font-ui)", fontSize: 13,

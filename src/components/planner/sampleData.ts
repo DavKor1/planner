@@ -30,7 +30,9 @@ function getSampleTasks(): PlannerTask[] {
   ];
 }
 
-export const SAMPLE_TASKS = getSampleTasks();
+// Exported as a function so it is only called on the client (inside useState),
+// avoiding SSR/client date mismatch that causes React hydration errors.
+export { getSampleTasks };
 
 export const SUGGESTED_PROMPTS = [
   "Reduce workload this Friday",
