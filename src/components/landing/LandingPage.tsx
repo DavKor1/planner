@@ -33,9 +33,9 @@ export default function LandingPage() {
           alignItems: "center",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600 }}>
+        <a href="/" style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 600, textDecoration: "none", color: "var(--fg)", cursor: "pointer", transition: "opacity 0.2s" }} onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.7")} onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}>
           <span style={{ fontSize: 20 }}>◆</span> BONE
-        </div>
+        </a>
         <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
           <a href="#features" style={{ textDecoration: "none", color: "var(--fg-2)", fontSize: 14, transition: "color 0.2s" }} onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")} onMouseLeave={(e) => (e.currentTarget.style.color = "var(--fg-2)")}>
             Features

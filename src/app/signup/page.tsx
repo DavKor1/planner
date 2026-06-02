@@ -117,13 +117,16 @@ function AuthShell({ title, subtitle, children }: { title: string; subtitle: str
     }}>
       <div style={{ width: "100%", maxWidth: 400 }}>
         <div style={{ marginBottom: 36, textAlign: "center" }}>
-          <div style={{
+          <Link href="/" style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.06em",
             color: "var(--accent)",
-          }}>
-            <span style={{ fontSize: 16 }}>●</span> BONE
-          </div>
+            textDecoration: "none",
+            cursor: "pointer",
+            transition: "opacity 0.2s",
+          }} onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.7")} onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}>
+            <span style={{ fontSize: 16 }}>◆</span> BONE
+          </Link>
           <div style={{
             fontFamily: "var(--font-display)", fontWeight: "var(--display-weight)",
             letterSpacing: "var(--display-tracking)", fontSize: 30, lineHeight: 1.1,
