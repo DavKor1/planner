@@ -66,7 +66,7 @@ function LoginPageInner() {
             type="password"
             value={password}
             onChange={e => setPassword(e.target.value)}
-            placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+            placeholder="••••••••"
             required
           />
         </Field>
@@ -78,7 +78,7 @@ function LoginPageInner() {
         </div>
 
         <PrimaryBtn type="submit" disabled={loading}>
-          {loading ? "Signing inâ€¦" : "Sign in"}
+          {loading ? "Signing in…" : "Sign in"}
         </PrimaryBtn>
       </form>
 
@@ -94,7 +94,7 @@ function LoginPageInner() {
   );
 }
 
-// â”€â”€ Shared auth UI atoms â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Shared auth UI atoms ──────────────────────────────────────────────────────
 
 function AuthShell({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
@@ -110,7 +110,6 @@ function AuthShell({ title, subtitle, children }: { title: string; subtitle: str
             fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.06em",
             color: "var(--accent)",
           }}>
-            <span style={{ fontSize: 16 }}>â—</span> BONE
           </div>
           <div style={{
             fontFamily: "var(--font-display)", fontWeight: "var(--display-weight)",

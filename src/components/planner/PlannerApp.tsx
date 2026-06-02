@@ -7,7 +7,7 @@ import {
   MONTH_NAMES, MONTH_NAMES_SHORT, DAY_NAMES_SHORT,
   HOUR_START, HOUR_END, HOUR_PX, TIME_COL, fmtHour,
 } from "./utils";
-import { getSampleTasks, SUGGESTED_PROMPTS } from "./sampleData";
+import { SUGGESTED_PROMPTS } from "./sampleData";
 import { expandRecurringTasks } from "./recurrence";
 import { useAuth } from "@/contexts/AuthContext";
 import { getOrCreateDefaultProject } from "@/services/projects";
@@ -1602,7 +1602,7 @@ function HoverTooltip({ hovered, containerRef }: {
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 
-function CalendarEmptyState({ startAdd, loadSample }: { startAdd: () => void; loadSample: () => void }) {
+function CalendarEmptyState({ startAdd }: { startAdd: () => void }) {
   return (
     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }}>
       <div style={{ maxWidth: 460, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
@@ -1628,11 +1628,6 @@ function CalendarEmptyState({ startAdd, loadSample }: { startAdd: () => void; lo
           fontFamily: "var(--font-ui)", fontSize: 15, fontWeight: 600, cursor: "pointer",
           boxShadow: "0 2px 12px var(--accent-tint)",
         }}>Start Planning</button>
-        <button onClick={loadSample} style={{
-          background: "transparent", border: 0, color: "var(--fg-3)", cursor: "pointer",
-          fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.04em",
-          textDecoration: "underline", textDecorationColor: "var(--line-2)",
-        }}>or explore a sample week</button>
       </div>
     </div>
   );
@@ -1668,9 +1663,6 @@ function ScreenCalendar({ state, set, startAdd }: {
 
   useEffect(() => { setCurrentDate(initialDate); }, [initialDate]);
 
-  const loadSample = useCallback(() => {
-    set({ tasks: getSampleTasks(), sources: [{ name: "sample-week.ics", kind: "ics", size: "1 KB", items: 17 }] });
-  }, [set]);
 
   return (
     <div ref={containerRef} style={{ height: "100%", display: "flex", position: "relative" }}>
@@ -1683,7 +1675,7 @@ function ScreenCalendar({ state, set, startAdd }: {
         />
         <div style={{ flex: 1, display: "flex", overflow: "hidden", background: "var(--bg)", minHeight: 0 }}>
           {!hasTasks
-            ? <CalendarEmptyState startAdd={startAdd} loadSample={loadSample} />
+            ? <CalendarEmptyState startAdd={startAdd} />
             : view === "month"
               ? <MonthView tasks={tasks} currentDate={currentDate} selected={selected} setSelected={setSelected} setCurrentDate={setCurrentDate} setView={setView} />
               : <DayWeekView view={view} tasks={tasks} currentDate={currentDate} hovered={hovered} setHovered={setHovered} selected={selected} setSelected={setSelected} />
